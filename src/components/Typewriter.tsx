@@ -30,6 +30,7 @@ import {
   type MarginPresetKey,
   type DocumentModel,
   type Token,
+  type CustomMargins,
 } from '../lib/documentModel';
 
 interface TypewriterProps {
@@ -41,6 +42,7 @@ interface TypewriterProps {
   lineSpacing: number;
   paperSize: PaperSizeKey;
   marginPreset: MarginPresetKey;
+  customMargins: CustomMargins;
   paperRef: React.RefObject<HTMLDivElement>;
 }
 
@@ -56,7 +58,7 @@ interface MechanicalMotionState {
   machineOffsetY: number;
 }
 
-export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, lineSpacing, paperSize, marginPreset, paperRef }: TypewriterProps) {
+export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, lineSpacing, paperSize, marginPreset, customMargins, paperRef }: TypewriterProps) {
   const [text, setText] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [cursorPos, setCursorPos] = useState(0);
@@ -89,7 +91,9 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
 
   const pageSpec: PageSpec = useMemo(() => {
     const paper = PAPER_SIZES[paperSize];
-    const margins = MARGIN_PRESETS[marginPreset];
+    const margins = marginPreset === 'custom'
+      ? customMargins
+      : MARGIN_PRESETS[marginPreset];
     const spec: PageSpec = {
       ...DEFAULT_PAGE_SPEC,
       paper,
@@ -109,7 +113,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
       spec.marginRight = fallback.marginRight;
     }
     return spec;
-  }, [lineSpacing, paperSize, marginPreset]);
+  }, [lineSpacing, paperSize, marginPreset, customMargins]);
 
   const doc: DocumentModel = useMemo(
     () => layoutDocument(text, pageSpec),

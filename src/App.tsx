@@ -4,7 +4,7 @@ import { jsPDF } from 'jspdf';
 import { Toolbar, MODELS, RIBBONS } from './components/Toolbar';
 import { Typewriter } from './components/Typewriter';
 import { audioEngine, type AudioStatus } from './lib/audio';
-import { DEFAULT_PAGE_SPEC, PAPER_SIZES, MARGIN_PRESETS, type PaperSizeKey, type MarginPresetKey } from './lib/documentModel';
+import { DEFAULT_PAGE_SPEC, PAPER_SIZES, MARGIN_PRESETS, type PaperSizeKey, type MarginPresetKey, type CustomMargins } from './lib/documentModel';
 
 export default function App() {
   const [model, setModel] = useState<keyof typeof MODELS>('remington');
@@ -15,6 +15,12 @@ export default function App() {
   const [lineSpacing, setLineSpacing] = useState<number>(1);
   const [paperSize, setPaperSize] = useState<PaperSizeKey>('letter');
   const [marginPreset, setMarginPreset] = useState<MarginPresetKey>('normal');
+  const [customMargins, setCustomMargins] = useState<CustomMargins>({
+    marginTop: 122,
+    marginBottom: 104,
+    marginLeft: 104,
+    marginRight: 104,
+  });
 
   const paperRef = useRef<HTMLDivElement>(null);
 
@@ -92,6 +98,7 @@ export default function App() {
         lineSpacing={lineSpacing} setLineSpacing={setLineSpacing}
         paperSize={paperSize} setPaperSize={setPaperSize}
         marginPreset={marginPreset} setMarginPreset={setMarginPreset}
+        customMargins={customMargins} setCustomMargins={setCustomMargins}
         onExportPNG={handleExportPNG}
         onExportPDF={handleExportPDF}
       />
@@ -104,6 +111,7 @@ export default function App() {
         lineSpacing={lineSpacing}
         paperSize={paperSize}
         marginPreset={marginPreset}
+        customMargins={customMargins}
         paperRef={paperRef}
       />
     </div>
