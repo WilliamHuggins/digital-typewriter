@@ -121,4 +121,138 @@
     0%, 45% { opacity: 0.38; }
     55%, 100% { opacity: 0.08; }
   }
+
+  /* -----------------------------------------------------------------------
+   * Type-strike effect system
+   * Three layered effects triggered per keystroke:
+   *   1. Key-stamp impact  – brief downward slam + ink bloom on the glyph
+   *   2. Ribbon-contact    – narrow band at strike zone matching ribbon color
+   *   3. Top-down hit cue  – short shadow streak from above
+   * All animations are < 200ms and use will-change for GPU compositing.
+   * ----------------------------------------------------------------------- */
+
+  /* 1. Key-stamp impact on the freshly struck character */
+  .strike-impact {
+    animation: strike-stamp 160ms cubic-bezier(0.22, 0.68, 0.35, 1) forwards;
+    will-change: transform, filter;
+  }
+
+  @keyframes strike-stamp {
+    0% {
+      transform: translateY(-1.8px) scale(1.06);
+      filter: brightness(0.72) contrast(1.18);
+    }
+    35% {
+      transform: translateY(0.6px) scale(0.98);
+      filter: brightness(0.82) contrast(1.12);
+    }
+    100% {
+      transform: translateY(0) scale(1);
+      filter: brightness(1) contrast(1);
+    }
+  }
+
+  /* 2. Ribbon-contact overlay – narrow band at strike position */
+  .ribbon-contact {
+    position: absolute;
+    top: -1px;
+    left: -1px;
+    right: -1px;
+    bottom: -1px;
+    pointer-events: none;
+    z-index: 15;
+    animation: ribbon-flash 140ms ease-out forwards;
+    will-change: opacity;
+    border-radius: 1px;
+  }
+
+  .ribbon-contact-black {
+    background: linear-gradient(
+      to bottom,
+      transparent 15%,
+      rgba(17, 24, 39, 0.28) 40%,
+      rgba(17, 24, 39, 0.32) 55%,
+      transparent 80%
+    );
+  }
+
+  .ribbon-contact-red {
+    background: linear-gradient(
+      to bottom,
+      transparent 15%,
+      rgba(153, 27, 27, 0.26) 40%,
+      rgba(153, 27, 27, 0.30) 55%,
+      transparent 80%
+    );
+  }
+
+  .ribbon-contact-blue {
+    background: linear-gradient(
+      to bottom,
+      transparent 15%,
+      rgba(30, 64, 175, 0.24) 40%,
+      rgba(30, 64, 175, 0.28) 55%,
+      transparent 80%
+    );
+  }
+
+  .ribbon-contact-stencil {
+    background: linear-gradient(
+      to bottom,
+      transparent 20%,
+      rgba(0, 0, 0, 0.06) 45%,
+      rgba(0, 0, 0, 0.08) 55%,
+      transparent 80%
+    );
+  }
+
+  @keyframes ribbon-flash {
+    0% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+
+  /* 3. Top-down hit cue – tiny shadow streak descending onto the glyph */
+  .strike-shadow {
+    position: absolute;
+    top: -6px;
+    left: 25%;
+    width: 50%;
+    height: 5px;
+    pointer-events: none;
+    z-index: 16;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.18), transparent);
+    border-radius: 0 0 1px 1px;
+    animation: strike-shadow-drop 130ms ease-out forwards;
+    will-change: transform, opacity;
+  }
+
+  @keyframes strike-shadow-drop {
+    0% {
+      transform: translateY(-2px) scaleY(1.5);
+      opacity: 0.9;
+    }
+    50% {
+      transform: translateY(2px) scaleY(0.8);
+      opacity: 0.5;
+    }
+    100% {
+      transform: translateY(0) scaleY(0);
+      opacity: 0;
+    }
+  }
+
+  /* Reduced-motion: disable all strike animations */
+  @media (prefers-reduced-motion: reduce) {
+    .strike-impact {
+      animation: none;
+    }
+    .ribbon-contact {
+      animation: none;
+      opacity: 0;
+    }
+    .strike-shadow {
+      animation: none;
+      opacity: 0;
+    }
+  }
 }
