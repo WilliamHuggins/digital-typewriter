@@ -74,6 +74,40 @@
     box-shadow: inset 0 0 0 1px rgba(42, 26, 12, 0.08);
   }
 
+  .carriage-bracket-cue {
+    position: absolute;
+    width: 9px;
+    height: 7px;
+    border-left: 1px solid rgba(65, 49, 30, 0.3);
+    border-bottom: 1px solid rgba(65, 49, 30, 0.2);
+    border-radius: 1px;
+    transition: left 85ms cubic-bezier(0.2, 0.8, 0.3, 1);
+  }
+
+  .carriage-bracket-pin {
+    position: absolute;
+    right: -2px;
+    top: -1px;
+    width: 2px;
+    height: 2px;
+    border-radius: 9999px;
+    background: rgba(52, 38, 24, 0.32);
+  }
+
+  .carriage-margin-cue {
+    position: absolute;
+    width: 2px;
+    height: 12px;
+    border-radius: 9999px;
+    background: linear-gradient(to bottom, rgba(124, 30, 30, 0.55), rgba(124, 30, 30, 0.16));
+    box-shadow: 0 0 6px rgba(124, 30, 30, 0.12);
+    transition: opacity 120ms ease;
+  }
+
+  .carriage-cue-reduced-motion {
+    transition-duration: 0ms;
+  }
+
   @keyframes typewriter-caret-blink {
     0%, 45% { opacity: 0.38; }
     55%, 100% { opacity: 0.08; }

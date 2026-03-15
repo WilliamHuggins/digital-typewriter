@@ -467,6 +467,18 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
   const paperTransform = `translate3d(${motionState.carriageOffsetX}px, ${transformY + motionState.paperOffsetY}px, 0) scale(${scale})`;
   const guideTransform = `translate3d(${motionState.machineOffsetX}px, ${motionState.machineOffsetY}px, 0) scale(${scale})`;
 
+  const activeLine = pages[cursorPageIdx]?.lines[cursorLineIdx];
+  const lineContentEnd = activeLine && text[activeLine.endIndex - 1] === '\n'
+    ? activeLine.endIndex - 1
+    : activeLine?.endIndex ?? 0;
+  // Cursor column is derived from the wrapped visual line indices.
+  const cursorColumnOnLine = activeLine
+    ? Math.max(0, Math.min(cursorPos - activeLine.startIndex, lineContentEnd - activeLine.startIndex))
+    : 0;
+  const carriageCueX = MARGIN_X + cursorColumnOnLine * CHAR_WIDTH;
+  const rightMarginX = MARGIN_X + MAX_CHARS_PER_LINE * CHAR_WIDTH;
+  const marginApproach = Math.min(1, Math.max(0, (cursorColumnOnLine / MAX_CHARS_PER_LINE - 0.72) / 0.28));
+
   return (
     <div className="flex-1 flex overflow-hidden bg-neutral-900 relative">
       {/* Sidebar */}
@@ -703,10 +715,29 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
           className="absolute top-[250px] left-0 w-full pointer-events-none flex justify-center"
           style={{ height: `${currentLineHeight}px` }}
         >
-          <div 
-            className="w-[816px] border-b border-black/5" 
+          <div
+            className="relative w-[816px]"
             style={{ transform: guideTransform, transformOrigin: 'center' }}
-          />
+          >
+            <div className="absolute inset-x-0 top-0 border-b border-black/5" />
+            <div
+              className={cn('carriage-bracket-cue', prefersReducedMotion && 'carriage-cue-reduced-motion')}
+              style={{
+                left: `${carriageCueX - 9}px`,
+                top: `${Math.max(2, currentLineHeight * 0.14)}px`,
+              }}
+            >
+              <span className="carriage-bracket-pin" />
+            </div>
+            <div
+              className="carriage-margin-cue"
+              style={{
+                left: `${rightMarginX + 7}px`,
+                top: `${Math.max(3, currentLineHeight * 0.06)}px`,
+                opacity: 0.16 + marginApproach * 0.46,
+              }}
+            />
+          </div>
         </div>
       </div>
     </div>
