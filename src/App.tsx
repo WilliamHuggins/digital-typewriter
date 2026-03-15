@@ -3,18 +3,26 @@ import { toPng, toJpeg } from 'html-to-image';
 import { jsPDF } from 'jspdf';
 import { Toolbar, MODELS, RIBBONS } from './components/Toolbar';
 import { Typewriter } from './components/Typewriter';
-import { audioEngine } from './lib/audio';
+import { audioEngine, type AudioStatus } from './lib/audio';
 
 export default function App() {
   const [model, setModel] = useState<keyof typeof MODELS>('remington');
   const [ribbon, setRibbon] = useState<keyof typeof RIBBONS>('black');
   const [volume, setVolume] = useState(0.5);
   const [audioEnabled, setAudioEnabled] = useState(false);
+  const [audioStatus, setAudioStatus] = useState<AudioStatus>('off');
   const [lineSpacing, setLineSpacing] = useState<number>(1);
   
   const paperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    const unsubscribe = audioEngine.onStatusChange(setAudioStatus);
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    audioEngine.setEnabled(audioEnabled);
+
     if (audioEnabled) {
       audioEngine.init();
     }
@@ -75,6 +83,7 @@ export default function App() {
         ribbon={ribbon} setRibbon={setRibbon}
         volume={volume} setVolume={setVolume}
         audioEnabled={audioEnabled} setAudioEnabled={setAudioEnabled}
+        audioStatus={audioStatus}
         lineSpacing={lineSpacing} setLineSpacing={setLineSpacing}
         onExportPNG={handleExportPNG}
         onExportPDF={handleExportPDF}
@@ -83,6 +92,7 @@ export default function App() {
         model={model}
         ribbon={ribbon}
         audioEnabled={audioEnabled}
+        audioStatus={audioStatus}
         volume={volume}
         lineSpacing={lineSpacing}
         paperRef={paperRef}
