@@ -5,6 +5,7 @@ import { Typewriter } from './components/Typewriter';
 import { audioEngine, type AudioStatus } from './lib/audio';
 import { type PaperSizeKey, type MarginPresetKey, type CustomMargins, type DocumentModel } from './lib/documentModel';
 import { exportDocumentToPdf } from './lib/pdfExport';
+import type { RibbonWearState } from './lib/ribbonWear';
 
 export default function App() {
   const [model, setModel] = useState<keyof typeof MODELS>('remington');
@@ -25,6 +26,7 @@ export default function App() {
 
   const paperRef = useRef<HTMLDivElement>(null);
   const latestDocRef = useRef<DocumentModel | null>(null);
+  const latestWearRef = useRef<RibbonWearState | null>(null);
 
   useEffect(() => {
     const unsubscribe = audioEngine.onStatusChange(setAudioStatus);
@@ -59,7 +61,11 @@ export default function App() {
     if (!latestDocRef.current) return;
 
     try {
-      await exportDocumentToPdf(latestDocRef.current, { modelKey: model, ribbon });
+      await exportDocumentToPdf(latestDocRef.current, {
+        modelKey: model,
+        ribbon,
+        wearState: latestWearRef.current ?? undefined,
+      });
     } catch (err) {
       console.error('Failed to export PDF', err);
     }
@@ -96,6 +102,9 @@ export default function App() {
         paperRef={paperRef}
         onDocumentModelChange={(doc) => {
           latestDocRef.current = doc;
+        }}
+        onRibbonWearChange={(wearState) => {
+          latestWearRef.current = wearState;
         }}
       />
     </div>

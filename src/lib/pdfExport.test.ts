@@ -1,8 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Token } from './documentModel';
-import { computeCalibratedFontSize, tokensToGlyphCells, calibratePdfFont, ribbonToPdfColor, type PdfFontCalibration, type PdfRgbColor } from './pdfExport';
+import { computeCalibratedFontSize, tokensToGlyphCells, calibratePdfFont, ribbonToPdfColor, wearAdjustedPdfColor, type PdfFontCalibration, type PdfRgbColor } from './pdfExport';
 import { COURIER_FONT, type PdfFontDef } from './pdfFonts';
+import { createRibbonWearState, calculateRibbonInkStyle, type RibbonWearState } from './ribbonWear';
 
 // ---------------------------------------------------------------------------
 // computeCalibratedFontSize – pure scaling logic
@@ -239,5 +240,130 @@ describe('PDF export applies ribbon color', () => {
     const color = ribbonToPdfColor(undefined);
     mock.setTextColor(color.r, color.g, color.b);
     assert.deepEqual(mock.textColors[0], { r: 0x11, g: 0x18, b: 0x27 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// wearAdjustedPdfColor – deterministic wear-driven PDF color variation
+// ---------------------------------------------------------------------------
+
+describe('wearAdjustedPdfColor', () => {
+  it('returns the base color when ink style is fully opaque with neutral contrast/brightness', () => {
+    const base: PdfRgbColor = { r: 0x11, g: 0x18, b: 0x27 };
+    const result = wearAdjustedPdfColor(base, { opacity: 1, contrast: 1, brightness: 1 });
+    assert.deepEqual(result, base);
+  });
+
+  it('blends toward paper color when opacity is reduced', () => {
+    const base: PdfRgbColor = { r: 0x11, g: 0x18, b: 0x27 };
+    const result = wearAdjustedPdfColor(base, { opacity: 0.7, contrast: 1, brightness: 1 });
+    // Should shift toward paper color (0xf4, 0xf1, 0xea)
+    assert.ok(result.r > base.r, `r should increase toward paper: ${result.r}`);
+    assert.ok(result.g > base.g, `g should increase toward paper: ${result.g}`);
+    assert.ok(result.b > base.b, `b should increase toward paper: ${result.b}`);
+  });
+
+  it('is deterministic (same inputs produce same output)', () => {
+    const base: PdfRgbColor = { r: 0x99, g: 0x1b, b: 0x1b };
+    const ink = { opacity: 0.8, contrast: 0.95, brightness: 1.02 };
+    const a = wearAdjustedPdfColor(base, ink);
+    const b = wearAdjustedPdfColor(base, ink);
+    assert.deepEqual(a, b);
+  });
+
+  it('does not exceed paper color even with very low opacity', () => {
+    const base: PdfRgbColor = { r: 0x11, g: 0x18, b: 0x27 };
+    const result = wearAdjustedPdfColor(base, { opacity: 0.3, contrast: 0.8, brightness: 1.1 });
+    // fadeFactor is clamped to 0.45, so result stays between base and paper
+    assert.ok(result.r <= 0xf4, `r should not exceed paper color`);
+    assert.ok(result.g <= 0xf1, `g should not exceed paper color`);
+    assert.ok(result.b <= 0xea, `b should not exceed paper color`);
+    assert.ok(result.r >= base.r, `r should be at least base color`);
+  });
+
+  it('produces different colors for different ribbon base colors', () => {
+    const ink = { opacity: 0.75, contrast: 1, brightness: 1 };
+    const black = wearAdjustedPdfColor({ r: 0x11, g: 0x18, b: 0x27 }, ink);
+    const red = wearAdjustedPdfColor({ r: 0x99, g: 0x1b, b: 0x1b }, ink);
+    const blue = wearAdjustedPdfColor({ r: 0x1e, g: 0x40, b: 0xaf }, ink);
+    // All should be different
+    assert.notDeepEqual(black, red);
+    assert.notDeepEqual(black, blue);
+    assert.notDeepEqual(red, blue);
+  });
+
+  it('applies subtle variation — worn color stays close to base', () => {
+    const base: PdfRgbColor = { r: 0x11, g: 0x18, b: 0x27 };
+    // Mild wear
+    const result = wearAdjustedPdfColor(base, { opacity: 0.9, contrast: 1.02, brightness: 1.0 });
+    // Should be close to base (within ~30 per channel)
+    assert.ok(Math.abs(result.r - base.r) < 30, `r variation should be subtle: delta=${Math.abs(result.r - base.r)}`);
+    assert.ok(Math.abs(result.g - base.g) < 30, `g variation should be subtle: delta=${Math.abs(result.g - base.g)}`);
+    assert.ok(Math.abs(result.b - base.b) < 30, `b variation should be subtle: delta=${Math.abs(result.b - base.b)}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Integration: ribbon wear model produces per-glyph color variation for PDF
+// ---------------------------------------------------------------------------
+
+describe('ribbon wear produces per-glyph PDF color variation', () => {
+  function getWornColor(ribbon: 'black' | 'red' | 'blue', char: string, charIndex: number, lineIndex: number, impressionCount: number) {
+    const state: RibbonWearState = {
+      ...createRibbonWearState(ribbon),
+      impressionCount,
+      lineImpressions: Array(lineIndex + 1).fill(Math.floor(impressionCount / (lineIndex + 1))),
+    };
+    const base = ribbonToPdfColor(ribbon);
+    const ink = calculateRibbonInkStyle({ state, ribbon, char, charIndex, lineIndex });
+    return wearAdjustedPdfColor(base, ink);
+  }
+
+  it('produces variation between different characters on the same line', () => {
+    const colorA = getWornColor('black', 'a', 0, 0, 200);
+    const colorE = getWornColor('black', 'e', 5, 0, 200);
+    // Should differ (worn key signatures differ for 'a' vs 'e')
+    const differs = colorA.r !== colorE.r || colorA.g !== colorE.g || colorA.b !== colorE.b;
+    assert.ok(differs, 'different characters should produce different wear colors');
+  });
+
+  it('produces variation between different lines', () => {
+    const line0 = getWornColor('black', 'a', 0, 0, 300);
+    const line5 = getWornColor('black', 'a', 0, 5, 300);
+    const differs = line0.r !== line5.r || line0.g !== line5.g || line0.b !== line5.b;
+    assert.ok(differs, 'same character on different lines should produce different wear colors');
+  });
+
+  it('increases fade with higher impression count', () => {
+    const fresh = getWornColor('black', 'h', 3, 0, 0);
+    const worn = getWornColor('black', 'h', 3, 0, 500);
+    // Worn ribbon should shift further from base (higher RGB toward paper)
+    const freshBase = ribbonToPdfColor('black');
+    const freshDist = Math.abs(fresh.r - freshBase.r) + Math.abs(fresh.g - freshBase.g) + Math.abs(fresh.b - freshBase.b);
+    const wornDist = Math.abs(worn.r - freshBase.r) + Math.abs(worn.g - freshBase.g) + Math.abs(worn.b - freshBase.b);
+    assert.ok(wornDist >= freshDist, `worn ribbon should fade more: freshDist=${freshDist}, wornDist=${wornDist}`);
+  });
+
+  it('works correctly for all ribbon colors', () => {
+    for (const ribbon of ['black', 'red', 'blue'] as const) {
+      const color = getWornColor(ribbon, 't', 2, 1, 100);
+      const base = ribbonToPdfColor(ribbon);
+      // Color should be valid RGB
+      assert.ok(color.r >= 0 && color.r <= 255, `${ribbon} r in range`);
+      assert.ok(color.g >= 0 && color.g <= 255, `${ribbon} g in range`);
+      assert.ok(color.b >= 0 && color.b <= 255, `${ribbon} b in range`);
+      // Should be between base and paper
+      assert.ok(color.r >= Math.min(base.r, 0xf4) && color.r <= Math.max(base.r, 0xf4), `${ribbon} r between base and paper`);
+    }
+  });
+
+  it('falls back gracefully with zero-impression wear state', () => {
+    const state = createRibbonWearState('black');
+    const base = ribbonToPdfColor('black');
+    const ink = calculateRibbonInkStyle({ state, ribbon: 'black', char: 'x', charIndex: 0, lineIndex: 0 });
+    const result = wearAdjustedPdfColor(base, ink);
+    // Should still produce a valid color close to the base
+    assert.ok(result.r >= 0 && result.r <= 255);
+    assert.ok(Math.abs(result.r - base.r) < 40, 'fresh ribbon should be close to base');
   });
 });

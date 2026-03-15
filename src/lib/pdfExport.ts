@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import type { DocLine, DocumentModel, PageSpec, Token } from './documentModel';
-import type { RibbonKey } from './ribbonWear';
+import { type RibbonKey, type RibbonWearState, type RibbonInkStyle, calculateRibbonInkStyle, createRibbonWearState } from './ribbonWear';
 import { type PdfFontDef, COURIER_FONT, resolvePdfFont } from './pdfFonts';
 
 const PDF_FONT_BASE_SIZE = 15;
@@ -47,6 +47,46 @@ export function ribbonToPdfColor(ribbon: string | undefined): PdfRgbColor {
     return RIBBON_PDF_COLORS[ribbon as RibbonKey];
   }
   return DEFAULT_PDF_COLOR;
+}
+
+// ---------------------------------------------------------------------------
+// Wear → PDF color mapping
+// ---------------------------------------------------------------------------
+
+/**
+ * Map ribbon ink style (opacity/contrast/brightness from the ribbon wear model)
+ * to a PDF-friendly RGB color adjustment.
+ *
+ * Strategy: the on-screen renderer uses CSS opacity + filter(contrast, brightness).
+ * PDF has no per-glyph alpha or filter support, so we approximate the visual effect
+ * by blending the base ink color toward the paper color (lighter = more worn).
+ *
+ * The blending factor combines:
+ *   - opacity: primary wear signal (lower = more faded)
+ *   - brightness: secondary lightening (higher = lighter ink)
+ *   - contrast: tertiary sharpness (lower = softer)
+ *
+ * The result is a subtle per-glyph RGB shift that stays readable.
+ */
+const PDF_PAPER_COLOR = { r: 0xf4, g: 0xf1, b: 0xea };
+
+export function wearAdjustedPdfColor(
+  baseColor: PdfRgbColor,
+  inkStyle: RibbonInkStyle,
+): PdfRgbColor {
+  // Combine wear signals into a single fade factor (0 = full ink, 1 = fully faded)
+  // opacity is dominant; brightness > 1 lightens, contrast < 1 softens
+  const opacityFade = 1 - inkStyle.opacity;
+  const brightnessFade = Math.max(0, (inkStyle.brightness - 1) * 0.6);
+  const contrastFade = Math.max(0, (1 - inkStyle.contrast) * 0.3);
+  const fadeFactor = Math.min(0.45, opacityFade * 0.7 + brightnessFade + contrastFade);
+
+  // Blend base ink color toward paper color
+  return {
+    r: Math.round(baseColor.r + (PDF_PAPER_COLOR.r - baseColor.r) * fadeFactor),
+    g: Math.round(baseColor.g + (PDF_PAPER_COLOR.g - baseColor.g) * fadeFactor),
+    b: Math.round(baseColor.b + (PDF_PAPER_COLOR.b - baseColor.b) * fadeFactor),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -125,11 +165,45 @@ export function tokensToGlyphCells(tokens: Token[]): GlyphCell[] {
   return glyphs;
 }
 
-function drawLine(pdf: jsPDF, line: DocLine, x: number, y: number, charCellWidth: number) {
+function drawLine(
+  pdf: jsPDF,
+  line: DocLine,
+  x: number,
+  y: number,
+  charCellWidth: number,
+  wearContext?: { baseColor: PdfRgbColor; state: RibbonWearState; ribbon: RibbonKey; lineIndex: number },
+) {
   const glyphs = tokensToGlyphCells(line.tokens);
   if (glyphs.length === 0) return;
 
-  glyphs.forEach(({ char, column }) => {
+  if (!wearContext) {
+    // Uniform color fallback (no wear data)
+    glyphs.forEach(({ char, column }) => {
+      pdf.text(char, x + column * charCellWidth, y, { baseline: 'top' });
+    });
+    return;
+  }
+
+  // Per-glyph color variation via ribbon wear model
+  let lastR = -1, lastG = -1, lastB = -1;
+  glyphs.forEach(({ char, column }, glyphIndex) => {
+    const inkStyle = calculateRibbonInkStyle({
+      state: wearContext.state,
+      ribbon: wearContext.ribbon,
+      char,
+      charIndex: glyphIndex,
+      lineIndex: wearContext.lineIndex,
+    });
+    const adjusted = wearAdjustedPdfColor(wearContext.baseColor, inkStyle);
+
+    // Only call setTextColor when color actually changes (performance)
+    if (adjusted.r !== lastR || adjusted.g !== lastG || adjusted.b !== lastB) {
+      pdf.setTextColor(adjusted.r, adjusted.g, adjusted.b);
+      lastR = adjusted.r;
+      lastG = adjusted.g;
+      lastB = adjusted.b;
+    }
+
     pdf.text(char, x + column * charCellWidth, y, { baseline: 'top' });
   });
 }
@@ -142,6 +216,9 @@ export interface PdfExportOptions {
   /** Active ribbon key. Determines text color in the PDF.
    *  Falls back to black when omitted or unrecognised. */
   ribbon?: string;
+  /** Current ribbon wear state. When provided, per-glyph color variation
+   *  is applied to approximate the on-screen ink wear effect. */
+  wearState?: RibbonWearState;
 }
 
 /**
@@ -170,6 +247,14 @@ export async function exportDocumentToPdf(
   const inkColor = ribbonToPdfColor(options.ribbon);
   pdf.setTextColor(inkColor.r, inkColor.g, inkColor.b);
 
+  // Resolve ribbon key for wear calculation
+  const ribbonKey: RibbonKey = (options.ribbon && options.ribbon in RIBBON_PDF_COLORS)
+    ? (options.ribbon as RibbonKey)
+    : 'black';
+  const wearState = options.wearState;
+
+  let globalLineIndex = 0;
+
   doc.pages.forEach((page, pageIndex) => {
     if (pageIndex > 0) {
       pdf.addPage([spec.paper.width, spec.paper.height], 'portrait');
@@ -181,7 +266,11 @@ export async function exportDocumentToPdf(
     page.lines.forEach((line, lineIndex) => {
       const x = spec.marginLeft;
       const y = spec.marginTop + lineIndex * metrics.lineHeight;
-      drawLine(pdf, line, x, y, calibration.charCellWidth);
+      const wearContext = wearState
+        ? { baseColor: inkColor, state: wearState, ribbon: ribbonKey, lineIndex: globalLineIndex }
+        : undefined;
+      drawLine(pdf, line, x, y, calibration.charCellWidth, wearContext);
+      globalLineIndex++;
     });
   });
 
