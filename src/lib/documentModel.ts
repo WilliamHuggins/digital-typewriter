@@ -44,16 +44,37 @@ export const MARGIN_PRESETS: Record<string, MarginPreset> = {
   wide: { name: 'Wide', marginTop: 144, marginBottom: 144, marginLeft: 152, marginRight: 152 },
 } as const;
 
-export type MarginPresetKey = keyof typeof MARGIN_PRESETS;
+export type MarginPresetKey = keyof typeof MARGIN_PRESETS | 'custom';
+
+/** User-defined margin values in CSS pixels */
+export interface CustomMargins {
+  marginTop: number;
+  marginBottom: number;
+  marginLeft: number;
+  marginRight: number;
+}
 
 // ---------------------------------------------------------------------------
 // Margin validation
 // ---------------------------------------------------------------------------
 
 /** Minimum margin in px (~0.5 inch) */
-const MIN_MARGIN = 48;
+export const MIN_MARGIN = 48;
 /** Minimum content area in px (~2 inches) to prevent degenerate layouts */
-const MIN_CONTENT_SIZE = 192;
+export const MIN_CONTENT_SIZE = 192;
+
+/** CSS pixels per inch (standard web resolution) */
+export const PX_PER_INCH = 96;
+
+/** Convert CSS pixels to inches (rounded to 2 decimal places) */
+export function pxToInches(px: number): number {
+  return Math.round((px / PX_PER_INCH) * 100) / 100;
+}
+
+/** Convert inches to CSS pixels (rounded to nearest integer) */
+export function inchesToPx(inches: number): number {
+  return Math.round(inches * PX_PER_INCH);
+}
 
 export function validateMargins(
   paper: PaperSize,

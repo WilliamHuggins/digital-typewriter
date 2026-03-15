@@ -1,7 +1,17 @@
 import React from 'react';
 import { Volume2, VolumeX, Download, Type, Palette, Home, AlignJustify, FileText, Columns } from 'lucide-react';
 import { type AudioStatus } from '../lib/audio';
-import { PAPER_SIZES, MARGIN_PRESETS, type PaperSizeKey, type MarginPresetKey } from '../lib/documentModel';
+import {
+  PAPER_SIZES,
+  MARGIN_PRESETS,
+  type PaperSizeKey,
+  type MarginPresetKey,
+  type CustomMargins,
+  pxToInches,
+  inchesToPx,
+  validateMargins,
+  MIN_MARGIN,
+} from '../lib/documentModel';
 
 export const MODELS = {
   remington: { name: 'Remington Noiseless', font: 'font-special-elite', wear: 0.8 },
@@ -34,8 +44,71 @@ interface ToolbarProps {
   setPaperSize: (s: PaperSizeKey) => void;
   marginPreset: MarginPresetKey;
   setMarginPreset: (m: MarginPresetKey) => void;
+  customMargins: CustomMargins;
+  setCustomMargins: (m: CustomMargins) => void;
   onExportPNG: () => void;
   onExportPDF: () => void;
+}
+
+// ---------------------------------------------------------------------------
+// Custom margin inline inputs (shown only when "Custom" is selected)
+// ---------------------------------------------------------------------------
+
+const MARGIN_FIELDS = [
+  { key: 'marginTop', label: 'T' },
+  { key: 'marginRight', label: 'R' },
+  { key: 'marginBottom', label: 'B' },
+  { key: 'marginLeft', label: 'L' },
+] as const;
+
+function CustomMarginInputs({
+  customMargins,
+  setCustomMargins,
+  paperSize,
+}: {
+  customMargins: CustomMargins;
+  setCustomMargins: (m: CustomMargins) => void;
+  paperSize: PaperSizeKey;
+}) {
+  const paper = PAPER_SIZES[paperSize];
+  const validation = validateMargins(
+    paper,
+    customMargins.marginTop,
+    customMargins.marginBottom,
+    customMargins.marginLeft,
+    customMargins.marginRight,
+  );
+
+  const handleChange = (field: keyof CustomMargins, inchValue: string) => {
+    const parsed = parseFloat(inchValue);
+    if (Number.isNaN(parsed)) return;
+    const px = inchesToPx(Math.max(0, parsed));
+    setCustomMargins({ ...customMargins, [field]: px });
+  };
+
+  return (
+    <div className="flex items-center gap-1.5">
+      {MARGIN_FIELDS.map(({ key, label }) => (
+        <label key={key} className="flex items-center gap-0.5 text-xs text-zinc-400">
+          <span>{label}</span>
+          <input
+            type="number"
+            step="0.05"
+            min={pxToInches(MIN_MARGIN)}
+            value={pxToInches(customMargins[key])}
+            onChange={(e) => handleChange(key, e.target.value)}
+            className="w-14 bg-zinc-800 border border-zinc-700 rounded px-1 py-0.5 text-sm text-zinc-200 focus:outline-none focus:ring-1 focus:ring-zinc-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+          />
+        </label>
+      ))}
+      <span className="text-[10px] text-zinc-500 ml-0.5">in</span>
+      {!validation.valid && (
+        <span className="text-[10px] text-red-400 ml-1 max-w-32 truncate" title={validation.reason}>
+          {validation.reason}
+        </span>
+      )}
+    </div>
+  );
 }
 
 const AUDIO_STATUS_LABELS: Record<AudioStatus, string> = {
@@ -54,6 +127,7 @@ export function Toolbar({
   lineSpacing, setLineSpacing,
   paperSize, setPaperSize,
   marginPreset, setMarginPreset,
+  customMargins, setCustomMargins,
   onExportPNG, onExportPDF
 }: ToolbarProps) {
   const statusTone = audioStatus === 'failed'
@@ -137,13 +211,33 @@ export function Toolbar({
           <Columns size={18} className="text-zinc-500" />
           <select
             value={marginPreset}
-            onChange={(e) => setMarginPreset(e.target.value as MarginPresetKey)}
+            onChange={(e) => {
+              const val = e.target.value as MarginPresetKey;
+              setMarginPreset(val);
+              if (val !== 'custom') {
+                const preset = MARGIN_PRESETS[val];
+                setCustomMargins({
+                  marginTop: preset.marginTop,
+                  marginBottom: preset.marginBottom,
+                  marginLeft: preset.marginLeft,
+                  marginRight: preset.marginRight,
+                });
+              }
+            }}
             className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
           >
             {Object.entries(MARGIN_PRESETS).map(([k, v]) => (
               <option key={k} value={k}>{v.name} Margins</option>
             ))}
+            <option value="custom">Custom Margins</option>
           </select>
+          {marginPreset === 'custom' && (
+            <CustomMarginInputs
+              customMargins={customMargins}
+              setCustomMargins={setCustomMargins}
+              paperSize={paperSize}
+            />
+          )}
         </div>
       </div>
 
