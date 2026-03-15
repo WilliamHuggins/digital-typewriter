@@ -1,6 +1,6 @@
 import React from 'react';
-import { Volume2, VolumeX, Download, Settings, Type, Palette, Home, AlignJustify } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { Volume2, VolumeX, Download, Type, Palette, Home, AlignJustify } from 'lucide-react';
+import { type AudioStatus } from '../lib/audio';
 
 export const MODELS = {
   remington: { name: 'Remington Noiseless', font: 'font-special-elite', wear: 0.8 },
@@ -26,20 +26,35 @@ interface ToolbarProps {
   setVolume: (v: number) => void;
   audioEnabled: boolean;
   setAudioEnabled: (e: boolean) => void;
+  audioStatus: AudioStatus;
   lineSpacing: number;
   setLineSpacing: (s: number) => void;
   onExportPNG: () => void;
   onExportPDF: () => void;
 }
 
+const AUDIO_STATUS_LABELS: Record<AudioStatus, string> = {
+  off: 'Sound Off',
+  loading: 'Loading Sounds…',
+  ready: 'Sound Ready',
+  failed: 'Sound Error',
+};
+
 export function Toolbar({
   model, setModel,
   ribbon, setRibbon,
   volume, setVolume,
   audioEnabled, setAudioEnabled,
+  audioStatus,
   lineSpacing, setLineSpacing,
   onExportPNG, onExportPDF
 }: ToolbarProps) {
+  const statusTone = audioStatus === 'failed'
+    ? 'text-red-400'
+    : audioStatus === 'ready'
+      ? 'text-emerald-400'
+      : 'text-zinc-500';
+
   return (
     <div className="flex flex-wrap items-center justify-between gap-4 p-4 bg-zinc-900 text-zinc-300 border-b border-zinc-800 shadow-md z-10 relative">
       <div className="flex items-center gap-6">
@@ -116,6 +131,7 @@ export function Toolbar({
             className="w-20 accent-zinc-500"
             disabled={!audioEnabled}
           />
+          <span className={`text-xs uppercase tracking-wide ${statusTone}`}>{AUDIO_STATUS_LABELS[audioStatus]}</span>
         </div>
 
         <div className="flex items-center gap-2">

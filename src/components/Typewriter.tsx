@@ -1,12 +1,13 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { cn, pseudoRandom } from '../lib/utils';
 import { MODELS, RIBBONS } from './Toolbar';
-import { audioEngine } from '../lib/audio';
+import { type AudioStatus, audioEngine } from '../lib/audio';
 
 interface TypewriterProps {
   model: keyof typeof MODELS;
   ribbon: keyof typeof RIBBONS;
   audioEnabled: boolean;
+  audioStatus: AudioStatus;
   volume: number;
   lineSpacing: number;
   paperRef: React.RefObject<HTMLDivElement>;
@@ -25,7 +26,7 @@ interface CharFormat {
   ribbon: keyof typeof RIBBONS;
 }
 
-export function Typewriter({ model, ribbon, audioEnabled, volume, lineSpacing, paperRef }: TypewriterProps) {
+export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, lineSpacing, paperRef }: TypewriterProps) {
   const [text, setText] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [cursorPos, setCursorPos] = useState(0);
@@ -104,11 +105,7 @@ export function Typewriter({ model, ribbon, audioEnabled, volume, lineSpacing, p
   }, [volume]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (!audioEnabled) return;
-
-    if (!audioEngine.ctx) {
-      audioEngine.init();
-    }
+    if (!audioEnabled || audioStatus !== 'ready') return;
 
     if (e.key === 'Enter') {
       audioEngine.playReturn();
