@@ -55,6 +55,61 @@ export class TypewriterAudio {
     }
   }
 
+  private createFallbackBuffer(category: 'key' | 'space' | 'return' | 'bell'): AudioBuffer | null {
+    if (!this.ctx) return null;
+
+    const sampleRate = this.ctx.sampleRate;
+    const durationByCategory: Record<typeof category, number> = {
+      key: 0.06,
+      space: 0.075,
+      return: 0.16,
+      bell: 0.22
+    };
+    const baseFrequencyByCategory: Record<typeof category, number> = {
+      key: 1500,
+      space: 900,
+      return: 250,
+      bell: 1850
+    };
+
+    const duration = durationByCategory[category];
+    const frameCount = Math.max(1, Math.floor(sampleRate * duration));
+    const buffer = this.ctx.createBuffer(1, frameCount, sampleRate);
+    const channelData = buffer.getChannelData(0);
+    const baseFrequency = baseFrequencyByCategory[category];
+
+    for (let i = 0; i < frameCount; i++) {
+      const t = i / sampleRate;
+      const progress = i / frameCount;
+      const decay = Math.exp(-progress * (category === 'bell' ? 3.5 : category === 'return' ? 6 : 10));
+      const sine = Math.sin(2 * Math.PI * baseFrequency * t);
+      const overtone = Math.sin(2 * Math.PI * baseFrequency * 1.7 * t) * (category === 'bell' ? 0.35 : 0.2);
+      const noise = (Math.random() * 2 - 1) * (category === 'bell' ? 0.08 : 0.18);
+      const click = i < 50 ? 1 - i / 50 : 0;
+      channelData[i] = (sine * 0.55 + overtone + noise + click * 0.22) * decay;
+    }
+
+    return buffer;
+  }
+
+  private ensureFallbackBuffers() {
+    const ensure = (categoryLabel: string, existing: AudioBuffer[], fallbackType: 'key' | 'space' | 'return' | 'bell') => {
+      if (existing.length > 0) return existing;
+      const fallback = this.createFallbackBuffer(fallbackType);
+      if (!fallback) return existing;
+      console.warn(`[audio] ${categoryLabel} has no decodable assets. Using synthesized fallback.`);
+      return [fallback];
+    };
+
+    for (const modelName of Object.keys(this.buffers.models)) {
+      this.buffers.models[modelName] = ensure(`model:${modelName}`, this.buffers.models[modelName], 'key');
+    }
+
+    this.buffers.space = ensure('space', this.buffers.space, 'space');
+    this.buffers.bell = ensure('bell', this.buffers.bell, 'bell');
+    this.buffers.return = ensure('return', this.buffers.return, 'return');
+  }
+
   private setStatus(status: AudioStatus) {
     this.status = status;
     this.statusListeners.forEach((listener) => listener(status));
@@ -128,13 +183,15 @@ export class TypewriterAudio {
         'return'
       );
 
+      this.ensureFallbackBuffers();
+
       const hasAnyModelBuffers = Object.values(this.buffers.models).some((buffers) => buffers.length > 0);
       const coreReady = this.buffers.space.length > 0 && this.buffers.bell.length > 0 && this.buffers.return.length > 0;
 
       if (hasAnyModelBuffers && coreReady) {
         this.setStatus('ready');
       } else {
-        console.error('[audio] Initialization failed: no usable audio assets for one or more core categories');
+        console.error('[audio] Initialization failed: no usable audio assets and fallback generation unavailable.');
         this.setStatus('failed');
       }
     })()
