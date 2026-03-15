@@ -4,6 +4,7 @@ import { jsPDF } from 'jspdf';
 import { Toolbar, MODELS, RIBBONS } from './components/Toolbar';
 import { Typewriter } from './components/Typewriter';
 import { audioEngine, type AudioStatus } from './lib/audio';
+import { DEFAULT_PAGE_SPEC } from './lib/documentModel';
 
 export default function App() {
   const [model, setModel] = useState<keyof typeof MODELS>('remington');
@@ -49,10 +50,12 @@ export default function App() {
     try {
       const pages = Array.from(paperRef.current.children) as HTMLElement[];
       
+      const { width, height } = DEFAULT_PAGE_SPEC.paper;
+
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'px',
-        format: [816, 1056]
+        format: [width, height]
       });
 
       for (let i = 0; i < pages.length; i++) {
@@ -62,12 +65,12 @@ export default function App() {
           backgroundColor: '#f4f1ea',
           quality: 0.95,
         });
-        
+
         if (i > 0) {
-          pdf.addPage([816, 1056], 'portrait');
+          pdf.addPage([width, height], 'portrait');
         }
-        
-        pdf.addImage(imgData, 'JPEG', 0, 0, 816, 1056);
+
+        pdf.addImage(imgData, 'JPEG', 0, 0, width, height);
       }
       
       pdf.save(`typewriter-document-${Date.now()}.pdf`);
