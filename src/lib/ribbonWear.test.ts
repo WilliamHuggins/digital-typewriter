@@ -183,15 +183,15 @@ test('stabilization is deterministic for repeated runs', () => {
 
 test('stabilized mapping keeps downstream wear continuity better than naive index-only mapping', () => {
   const previousLineDescriptors = [
-    { hash: 1, head: 'intro', tail: 'intro', length: 5 },
-    { hash: 2, head: 'heavily worn', tail: 'worn line', length: 17 },
-    { hash: 3, head: 'tail', tail: 'tail', length: 4 },
+    { hash: 1, head: 'intro', tail: 'intro', length: 5, tokenAnchors: [] },
+    { hash: 2, head: 'heavily worn', tail: 'worn line', length: 17, tokenAnchors: [] },
+    { hash: 3, head: 'tail', tail: 'tail', length: 4, tokenAnchors: [] },
   ];
   const nextLineDescriptors = [
-    { hash: 11, head: 'intro', tail: 'intro plus', length: 11 },
-    { hash: 12, head: 'plus', tail: 'plus', length: 4 },
-    { hash: 2, head: 'heavily worn', tail: 'worn line', length: 17 },
-    { hash: 3, head: 'tail', tail: 'tail', length: 4 },
+    { hash: 11, head: 'intro', tail: 'intro plus', length: 11, tokenAnchors: [] },
+    { hash: 12, head: 'plus', tail: 'plus', length: 4, tokenAnchors: [] },
+    { hash: 2, head: 'heavily worn', tail: 'worn line', length: 17, tokenAnchors: [] },
+    { hash: 3, head: 'tail', tail: 'tail', length: 4, tokenAnchors: [] },
   ];
 
   const oldImpressions = [2, 90, 4];
@@ -315,6 +315,92 @@ test('chunk anchoring preserves wear better through larger paragraph reflows', (
   assert.equal(remapped.lineImpressions[0], 90);
   assert.equal(remapped.lineImpressions[1], 70);
   assert.equal(remapped.lineImpressions[2], 30);
+});
+
+test('sparse token anchors remain stable across small punctuation edits', () => {
+  const previous = buildLineImpressionLedger({
+    text: 'alpha beta gamma',
+    insertedRange: { start: 0, length: 16 },
+    maxColumns: 24,
+  });
+  const next = buildLineImpressionLedger({
+    text: 'alpha beta gamma!',
+    insertedRange: { start: 16, length: 1 },
+    maxColumns: 24,
+  });
+
+  assert.deepEqual(previous.lineDescriptors[0].tokenAnchors, next.lineDescriptors[0].tokenAnchors);
+});
+
+test('anchor signal improves same-chunk continuity under heavy line rewrites', () => {
+  const previous = buildLineImpressionLedger({
+    text: 'alpha beta gamma delta epsilon zeta eta theta',
+    insertedRange: { start: 0, length: 45 },
+    maxColumns: 12,
+  });
+  const previousWithChunkIds = previous.lineDescriptors.map((line) => ({ ...line, chunkId: 1 }));
+  const priorWear = [100, 70, 40, 10];
+
+  const next = buildLineImpressionLedger({
+    text: 'preface bridge alpha gamma epsilon theta omega',
+    insertedRange: { start: 0, length: 0 },
+    maxColumns: 12,
+  });
+  const nextWithChunkIds = next.lineDescriptors.map((line) => ({ ...line, chunkId: 1 }));
+
+  const remapped = stabilizeLineImpressions({
+    previousImpressions: priorWear,
+    previousLineDescriptors: previousWithChunkIds,
+    nextLineDescriptors: nextWithChunkIds,
+  });
+
+  assert.equal(remapped[1], 70);
+});
+
+test('anchor scoring remains deterministic across repeated remaps', () => {
+  const previous = buildLineImpressionLedger({
+    text: 'ribbon wear continuity through chunk edits',
+    insertedRange: { start: 0, length: 41 },
+    maxColumns: 10,
+  });
+  const next = buildLineImpressionLedger({
+    text: 'ribbon wear continuity across deep chunk edits',
+    insertedRange: { start: 0, length: 0 },
+    maxColumns: 10,
+  });
+
+  const withIds = (lines: typeof previous.lineDescriptors) => lines.map((line) => ({ ...line, chunkId: 2 }));
+  const a = stabilizeLineImpressions({
+    previousImpressions: [3, 5, 8, 13, 21],
+    previousLineDescriptors: withIds(previous.lineDescriptors),
+    nextLineDescriptors: withIds(next.lineDescriptors),
+  });
+  const b = stabilizeLineImpressions({
+    previousImpressions: [3, 5, 8, 13, 21],
+    previousLineDescriptors: withIds(previous.lineDescriptors),
+    nextLineDescriptors: withIds(next.lineDescriptors),
+  });
+
+  assert.deepEqual(a, b);
+});
+
+test('mapping gracefully falls back when token anchors are absent', () => {
+  const previousLineDescriptors = [
+    { hash: 10, head: '***', tail: '***', length: 3, tokenAnchors: [] },
+    { hash: 20, head: '---', tail: '---', length: 3, tokenAnchors: [] },
+  ];
+  const nextLineDescriptors = [
+    { hash: 11, head: '***', tail: '**', length: 2, tokenAnchors: [] },
+    { hash: 21, head: '---', tail: '--', length: 2, tokenAnchors: [] },
+  ];
+
+  const remapped = stabilizeLineImpressions({
+    previousImpressions: [12, 7],
+    previousLineDescriptors,
+    nextLineDescriptors,
+  });
+
+  assert.deepEqual(remapped, [12, 7]);
 });
 
 test('chunk ids are reassigned sensibly when explicit newline split and merge occur', () => {

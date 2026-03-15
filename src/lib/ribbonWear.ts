@@ -20,9 +20,15 @@ export interface LineDescriptor {
   head: string;
   tail: string;
   length: number;
+  tokenAnchors: TokenAnchor[];
   chunkIndex?: number;
   chunkLineIndex?: number;
   chunkId?: number;
+}
+
+interface TokenAnchor {
+  hash: number;
+  bucket: number;
 }
 
 interface ChunkDescriptor {
@@ -277,7 +283,76 @@ function toLineDescriptor(lineText: string): LineDescriptor {
     head: normalized.slice(0, 16),
     tail: normalized.slice(-16),
     length: normalized.length,
+    tokenAnchors: buildSparseTokenAnchors(normalized),
   };
+}
+
+function buildSparseTokenAnchors(text: string): TokenAnchor[] {
+  if (!text) {
+    return [];
+  }
+
+  const tokenPattern = /[a-z0-9']+/gi;
+  const tokens: Array<{ value: string; start: number }> = [];
+  for (const match of text.matchAll(tokenPattern)) {
+    const token = match[0]?.toLowerCase();
+    const start = match.index ?? -1;
+    if (!token || start < 0) {
+      continue;
+    }
+    tokens.push({ value: token, start });
+  }
+
+  if (tokens.length === 0) {
+    return [];
+  }
+
+  const candidateIndices = new Set<number>([
+    0,
+    Math.floor((tokens.length - 1) / 3),
+    Math.floor(((tokens.length - 1) * 2) / 3),
+    tokens.length - 1,
+  ]);
+
+  if (tokens.length >= 2) {
+    candidateIndices.add(Math.floor((tokens.length - 2) / 2));
+  }
+
+  const anchors: TokenAnchor[] = [];
+  const seen = new Set<string>();
+  const pushAnchor = (value: string, start: number) => {
+    const bucket = Math.min(3, Math.floor((start / Math.max(1, text.length)) * 4));
+    const anchor = { hash: hashText(value), bucket };
+    const key = `${anchor.hash}:${anchor.bucket}`;
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    anchors.push(anchor);
+  };
+
+  for (const index of candidateIndices) {
+    const token = tokens[index];
+    if (!token) {
+      continue;
+    }
+    pushAnchor(token.value, token.start);
+
+    if (anchors.length >= 5) {
+      break;
+    }
+  }
+
+  if (anchors.length < 5 && tokens.length >= 2) {
+    const pairStart = Math.floor((tokens.length - 2) / 2);
+    const left = tokens[pairStart];
+    const right = tokens[pairStart + 1];
+    if (left && right) {
+      pushAnchor(`${left.value} ${right.value}`, left.start);
+    }
+  }
+
+  return anchors;
 }
 
 function hashText(text: string): number {
@@ -364,10 +439,32 @@ export function stabilizeLineImpressions({
 function scoreLineSimilarity(previousLine: LineDescriptor, nextLine: LineDescriptor, indexDistance: number): number {
   const prefixMatches = sharedPrefixLength(previousLine.head, nextLine.head);
   const suffixMatches = sharedSuffixLength(previousLine.tail, nextLine.tail);
+  const anchorSignal = scoreAnchorSimilarity(previousLine.tokenAnchors, nextLine.tokenAnchors);
   const hashBonus = previousLine.hash === nextLine.hash ? 8 : 0;
   const lengthPenalty = Math.abs(previousLine.length - nextLine.length) * 0.35;
   const indexPenalty = indexDistance * 0.75;
-  return hashBonus + prefixMatches * 0.6 + suffixMatches * 0.45 - lengthPenalty - indexPenalty;
+  return hashBonus + anchorSignal * 1.35 + prefixMatches * 0.6 + suffixMatches * 0.45 - lengthPenalty - indexPenalty;
+}
+
+function scoreAnchorSimilarity(previousAnchors: TokenAnchor[], nextAnchors: TokenAnchor[]): number {
+  if (previousAnchors.length === 0 || nextAnchors.length === 0) {
+    return 0;
+  }
+
+  let score = 0;
+  for (const previous of previousAnchors) {
+    for (const next of nextAnchors) {
+      if (previous.hash !== next.hash) {
+        continue;
+      }
+
+      const bucketDistance = Math.abs(previous.bucket - next.bucket);
+      score += Math.max(0.25, 1.1 - bucketDistance * 0.3);
+      break;
+    }
+  }
+
+  return score;
 }
 
 function stabilizeByChunkIdentity({
@@ -421,7 +518,36 @@ function stabilizeByChunkIdentity({
         continue;
       }
 
-      const expectedChunkLine = nextLineDescriptors[nextIndex].chunkLineIndex ?? 0;
+      const nextLineDescriptor = nextLineDescriptors[nextIndex];
+      if (nextLineDescriptor.tokenAnchors.length > 0) {
+        let bestAnchoredPrevious = -1;
+        let bestAnchoredScore = Number.NEGATIVE_INFINITY;
+
+        for (const previousIndex of previousIndices) {
+          if (takenPrevious.has(previousIndex)) {
+            continue;
+          }
+
+          const previousLineDescriptor = previousLineDescriptors[previousIndex];
+          const expectedChunkLine = nextLineDescriptor.chunkLineIndex ?? 0;
+          const previousChunkLine = previousLineDescriptor.chunkLineIndex ?? 0;
+          const chunkDistance = Math.abs(previousChunkLine - expectedChunkLine);
+          const anchoredScore = scoreLineSimilarity(previousLineDescriptor, nextLineDescriptor, chunkDistance);
+          if (anchoredScore > bestAnchoredScore) {
+            bestAnchoredScore = anchoredScore;
+            bestAnchoredPrevious = previousIndex;
+          }
+        }
+
+        if (bestAnchoredPrevious !== -1 && bestAnchoredScore >= 4) {
+          remapped[nextIndex] = previousImpressions[bestAnchoredPrevious] ?? 0;
+          takenPrevious.add(bestAnchoredPrevious);
+          matchedNext.add(nextIndex);
+          continue;
+        }
+      }
+
+      const expectedChunkLine = nextLineDescriptor.chunkLineIndex ?? 0;
       let bestPreviousIndex = -1;
       let bestDistance = Number.POSITIVE_INFINITY;
 
