@@ -888,7 +888,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
           }}
         >
           <div
-            className="typewriter-machine-frame"
+            className={cn("typewriter-machine-frame", `machine-model-${model}`)}
             style={{
               width: `${pageSpec.paper.width + 124}px`,
               transform: guideTransform,
