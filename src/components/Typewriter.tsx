@@ -41,6 +41,13 @@ interface CharFormat {
   ribbon: keyof typeof RIBBONS;
 }
 
+interface MechanicalMotionState {
+  carriageOffsetX: number;
+  paperOffsetY: number;
+  machineOffsetX: number;
+  machineOffsetY: number;
+}
+
 export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, lineSpacing, paperRef }: TypewriterProps) {
   const [text, setText] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -52,8 +59,17 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [scale, setScale] = useState(1);
   const [ribbonWearState, setRibbonWearState] = useState(() => createRibbonWearState(ribbon));
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  const [motionState, setMotionState] = useState<MechanicalMotionState>({
+    carriageOffsetX: 0,
+    paperOffsetY: 0,
+    machineOffsetX: 0,
+    machineOffsetY: 0,
+  });
   const containerRef = useRef<HTMLDivElement>(null);
   const bellArmedRef = useRef(true);
+  const typeMotionTimeoutRef = useRef<number | null>(null);
+  const returnMotionTimeoutsRef = useRef<number[]>([]);
 
   const activeModel = MODELS[model];
   const activeRibbon = RIBBONS[ribbon];
@@ -129,6 +145,93 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
     bellArmedRef.current = true;
   }, [model]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const updateMotionPreference = () => setPrefersReducedMotion(mediaQuery.matches);
+
+    updateMotionPreference();
+    mediaQuery.addEventListener('change', updateMotionPreference);
+
+    return () => mediaQuery.removeEventListener('change', updateMotionPreference);
+  }, []);
+
+  useEffect(() => () => {
+    if (typeMotionTimeoutRef.current) {
+      window.clearTimeout(typeMotionTimeoutRef.current);
+    }
+    returnMotionTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
+  }, []);
+
+  const triggerTypingMotion = () => {
+    if (prefersReducedMotion) return;
+
+    if (typeMotionTimeoutRef.current) {
+      window.clearTimeout(typeMotionTimeoutRef.current);
+    }
+
+    setMotionState((prev) => ({
+      ...prev,
+      carriageOffsetX: -1.5,
+      machineOffsetX: 0.6,
+      machineOffsetY: 0.3,
+    }));
+
+    typeMotionTimeoutRef.current = window.setTimeout(() => {
+      setMotionState((prev) => ({
+        ...prev,
+        carriageOffsetX: 0,
+        machineOffsetX: 0,
+        machineOffsetY: 0,
+      }));
+    }, 75);
+  };
+
+  const triggerCarriageReturnMotion = () => {
+    if (prefersReducedMotion) return;
+
+    if (typeMotionTimeoutRef.current) {
+      window.clearTimeout(typeMotionTimeoutRef.current);
+      typeMotionTimeoutRef.current = null;
+    }
+
+    returnMotionTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
+    returnMotionTimeoutsRef.current = [];
+
+    setMotionState((prev) => ({
+      ...prev,
+      carriageOffsetX: -18,
+      paperOffsetY: 4,
+      machineOffsetX: 1,
+      machineOffsetY: 0.6,
+    }));
+
+    returnMotionTimeoutsRef.current.push(
+      window.setTimeout(() => {
+        setMotionState((prev) => ({
+          ...prev,
+          carriageOffsetX: 1.2,
+          paperOffsetY: 1.5,
+          machineOffsetX: 0,
+          machineOffsetY: 0,
+        }));
+      }, 115)
+    );
+
+    returnMotionTimeoutsRef.current.push(
+      window.setTimeout(() => {
+        setMotionState((prev) => ({
+          ...prev,
+          carriageOffsetX: 0,
+          paperOffsetY: 0,
+        }));
+      }, 220)
+    );
+  };
+
   const maybePlayBell = (nextCursorPos: number) => {
     const bellState = evaluateBellState(
       text,
@@ -153,13 +256,16 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
     if (e.key === 'Enter') {
       audioEngine.playReturn(model);
       bellArmedRef.current = true;
+      triggerCarriageReturnMotion();
     } else if (e.key === ' ') {
       audioEngine.playKeypress(true, model);
       maybePlayBell(nextCursorPos);
+      triggerTypingMotion();
     } else if (e.key.length === 1) {
       audioEngine.playKeypress(false, model);
 
       maybePlayBell(nextCursorPos);
+      triggerTypingMotion();
     } else if (e.key === 'Backspace' || e.key === 'Delete' || e.key.startsWith('Arrow')) {
       if (
         shouldRearmBellAfterCursorOrEdit(
@@ -358,6 +464,8 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
   const totalOffsetY = pageOffsetY + lineOffsetY;
   
   const transformY = TYPING_OFFSET_Y - totalOffsetY * scale;
+  const paperTransform = `translate3d(${motionState.carriageOffsetX}px, ${transformY + motionState.paperOffsetY}px, 0) scale(${scale})`;
+  const guideTransform = `translate3d(${motionState.machineOffsetX}px, ${motionState.machineOffsetY}px, 0) scale(${scale})`;
 
   return (
     <div className="flex-1 flex overflow-hidden bg-neutral-900 relative">
@@ -425,8 +533,11 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
         
         {/* Paper Container - Moves up as you type */}
         <div 
-          className="absolute top-0 transition-transform duration-300 ease-out origin-top"
-          style={{ transform: `translateY(${transformY}px) scale(${scale})` }}
+          className={cn(
+            'absolute top-0 origin-top will-change-transform',
+            prefersReducedMotion ? 'transition-transform duration-75 linear' : 'transition-transform duration-150 ease-out'
+          )}
+          style={{ transform: paperTransform }}
         >
           <div ref={paperRef} className="flex flex-col gap-8 pointer-events-none">
             {pages.map((page, pageIndex) => (
@@ -594,7 +705,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
         >
           <div 
             className="w-[816px] border-b border-black/5" 
-            style={{ transform: `scale(${scale})`, transformOrigin: 'center' }}
+            style={{ transform: guideTransform, transformOrigin: 'center' }}
           />
         </div>
       </div>
