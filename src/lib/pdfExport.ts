@@ -2,6 +2,7 @@ import { jsPDF } from 'jspdf';
 import type { DocLine, DocumentModel, PageSpec, Token } from './documentModel';
 import { type RibbonKey, type RibbonWearState, type RibbonInkStyle, calculateRibbonInkStyle, createRibbonWearState } from './ribbonWear';
 import { type PdfFontDef, COURIER_FONT, resolvePdfFont } from './pdfFonts';
+import { pseudoRandom } from './utils';
 
 const PDF_FONT_BASE_SIZE = 15;
 const CALIBRATION_PROBE_TEXT = 'MMMMMMMMMM';
@@ -109,6 +110,61 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+// ---------------------------------------------------------------------------
+// Per-character spatial jitter for PDF export
+// ---------------------------------------------------------------------------
+
+/**
+ * Deterministic x/y offset applied to each glyph in PDF export to simulate
+ * the slight positional imperfection of a mechanical typewriter.
+ *
+ * Uses the same `pseudoRandom(seed * 1337)` pattern as the on-screen renderer
+ * (Typewriter.tsx `getCharacterRenderStyle`), so the jitter is seeded from the
+ * same space — though we intentionally use slightly smaller magnitudes than on
+ * screen because PDF is a permanent artifact and must stay highly readable.
+ *
+ * Maximum offsets (at wearLevel = 1):
+ *   x: ±MAX_PDF_JITTER_X  (0.4 px ≈ 4 % of a 9.6 px character cell)
+ *   y: ±MAX_PDF_JITTER_Y  (0.35 px ≈ 1.5 % of a 24 px line height)
+ *
+ * Offsets are clamped to these bounds regardless of inputs.
+ */
+
+/** Maximum x-axis offset in px (at wearLevel = 1). */
+export const MAX_PDF_JITTER_X = 0.4;
+/** Maximum y-axis offset in px (at wearLevel = 1). */
+export const MAX_PDF_JITTER_Y = 0.35;
+
+export interface PdfGlyphJitter {
+  dx: number;
+  dy: number;
+}
+
+/**
+ * Compute a deterministic spatial offset for a single glyph.
+ *
+ * @param globalCharIndex - Document-wide character index (unique per glyph).
+ * @param wearLevel       - 0‥1 wear multiplier. 0 = no jitter, 1 = full jitter.
+ *                          Matches the `wearLevel` semantic used on screen.
+ */
+export function calculatePdfGlyphJitter(
+  globalCharIndex: number,
+  wearLevel: number,
+): PdfGlyphJitter {
+  if (wearLevel <= 0) return { dx: 0, dy: 0 };
+
+  // Same seed multiplier (1337) and offset pattern used by the on-screen
+  // renderer in Typewriter.tsx `getCharacterRenderStyle`.
+  const seed = globalCharIndex * 1337;
+  const rawX = (pseudoRandom(seed) - 0.5) * 2;     // −1 … +1
+  const rawY = (pseudoRandom(seed + 1) - 0.5) * 2;  // −1 … +1
+
+  const dx = clamp(rawX * MAX_PDF_JITTER_X * wearLevel, -MAX_PDF_JITTER_X, MAX_PDF_JITTER_X);
+  const dy = clamp(rawY * MAX_PDF_JITTER_Y * wearLevel, -MAX_PDF_JITTER_Y, MAX_PDF_JITTER_Y);
+
+  return { dx, dy };
+}
+
 export function computeCalibratedFontSize(baseFontSize: number, measuredCharWidth: number, targetCharWidth: number): number {
   if (measuredCharWidth <= 0 || targetCharWidth <= 0) return baseFontSize;
   const nextSize = (baseFontSize * targetCharWidth) / measuredCharWidth;
@@ -172,14 +228,18 @@ function drawLine(
   y: number,
   charCellWidth: number,
   wearContext?: { baseColor: PdfRgbColor; state: RibbonWearState; ribbon: RibbonKey; lineIndex: number },
+  jitterContext?: { globalCharOffset: number; wearLevel: number },
 ) {
   const glyphs = tokensToGlyphCells(line.tokens);
   if (glyphs.length === 0) return;
 
   if (!wearContext) {
     // Uniform color fallback (no wear data)
-    glyphs.forEach(({ char, column }) => {
-      pdf.text(char, x + column * charCellWidth, y, { baseline: 'top' });
+    glyphs.forEach(({ char, column }, glyphIndex) => {
+      const jitter = jitterContext
+        ? calculatePdfGlyphJitter(jitterContext.globalCharOffset + glyphIndex, jitterContext.wearLevel)
+        : { dx: 0, dy: 0 };
+      pdf.text(char, x + column * charCellWidth + jitter.dx, y + jitter.dy, { baseline: 'top' });
     });
     return;
   }
@@ -204,7 +264,10 @@ function drawLine(
       lastB = adjusted.b;
     }
 
-    pdf.text(char, x + column * charCellWidth, y, { baseline: 'top' });
+    const jitter = jitterContext
+      ? calculatePdfGlyphJitter(jitterContext.globalCharOffset + glyphIndex, jitterContext.wearLevel)
+      : { dx: 0, dy: 0 };
+    pdf.text(char, x + column * charCellWidth + jitter.dx, y + jitter.dy, { baseline: 'top' });
   });
 }
 
@@ -219,6 +282,10 @@ export interface PdfExportOptions {
   /** Current ribbon wear state. When provided, per-glyph color variation
    *  is applied to approximate the on-screen ink wear effect. */
   wearState?: RibbonWearState;
+  /** Wear level (0‥1) controlling the magnitude of per-character spatial
+   *  jitter. 0 = perfectly grid-aligned (no jitter), 1 = full mechanical
+   *  imperfection. Defaults to 1 when omitted. */
+  wearLevel?: number;
 }
 
 /**
@@ -252,8 +319,10 @@ export async function exportDocumentToPdf(
     ? (options.ribbon as RibbonKey)
     : 'black';
   const wearState = options.wearState;
+  const wearLevel = clamp(options.wearLevel ?? 1, 0, 1);
 
   let globalLineIndex = 0;
+  let globalCharOffset = 0;
 
   doc.pages.forEach((page, pageIndex) => {
     if (pageIndex > 0) {
@@ -269,7 +338,12 @@ export async function exportDocumentToPdf(
       const wearContext = wearState
         ? { baseColor: inkColor, state: wearState, ribbon: ribbonKey, lineIndex: globalLineIndex }
         : undefined;
-      drawLine(pdf, line, x, y, calibration.charCellWidth, wearContext);
+      const glyphCount = tokensToGlyphCells(line.tokens).length;
+      const jitterContext = wearLevel > 0
+        ? { globalCharOffset, wearLevel }
+        : undefined;
+      drawLine(pdf, line, x, y, calibration.charCellWidth, wearContext, jitterContext);
+      globalCharOffset += glyphCount;
       globalLineIndex++;
     });
   });
