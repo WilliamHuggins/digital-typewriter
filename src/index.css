@@ -255,4 +255,223 @@
       opacity: 0;
     }
   }
+
+  /* =====================================================================
+   * Typewriter Hardware Chassis
+   * Visual frame that makes the paper look fed through a real machine.
+   * Each typewriter model has its own colors via inline style overrides.
+   * ===================================================================== */
+
+  /* Platen – the rubber roller at the typing line */
+  .tw-platen {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 28px;
+    z-index: 32;
+    border-radius: 14px;
+    box-shadow:
+      0 2px 8px rgba(0,0,0,0.5),
+      inset 0 1px 0 rgba(255,255,255,0.08),
+      inset 0 -1px 0 rgba(0,0,0,0.3);
+    transition: background 400ms ease;
+  }
+
+  .tw-platen-knob {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 18px;
+    height: 18px;
+    border-radius: 9999px;
+    border: 2px solid rgba(0,0,0,0.3);
+    box-shadow:
+      inset 0 1px 2px rgba(255,255,255,0.3),
+      0 1px 3px rgba(0,0,0,0.4);
+  }
+
+  /* Paper bail – thin bar with rollers that holds paper flat */
+  .tw-paper-bail {
+    position: absolute;
+    left: 10%;
+    right: 10%;
+    height: 0;
+    border-top: 2px solid;
+    z-index: 33;
+  }
+
+  .tw-bail-roller {
+    position: absolute;
+    top: -5px;
+    width: 8px;
+    height: 8px;
+    border-radius: 9999px;
+    border: 1px solid rgba(0,0,0,0.2);
+    box-shadow: inset 0 1px 1px rgba(255,255,255,0.25);
+  }
+
+  /* Top body panel – the machine housing above the paper window */
+  .tw-body-top {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 31;
+    border-bottom: 2px solid rgba(0,0,0,0.4);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    overflow: hidden;
+    transition: background 400ms ease;
+  }
+
+  /* Body texture overlay – adds subtle surface detail */
+  .tw-body-texture {
+    position: absolute;
+    inset: 0;
+    opacity: 0.04;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.2' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+  }
+
+  .tw-texture-crinkle {
+    opacity: 0.08;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='turbulence' baseFrequency='0.6' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+  }
+
+  /* Nameplate badge */
+  .tw-nameplate {
+    position: absolute;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 13px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    padding: 3px 18px;
+    border: 1px solid;
+    border-radius: 2px;
+    white-space: nowrap;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+    background: rgba(0,0,0,0.15);
+  }
+
+  /* Paper feed slot – where paper enters the machine */
+  .tw-feed-slot {
+    position: absolute;
+    bottom: -1px;
+    left: 12%;
+    right: 12%;
+    height: 8px;
+    background: rgba(0,0,0,0.6);
+    border-left: 3px solid;
+    border-right: 3px solid;
+    border-radius: 0 0 2px 2px;
+  }
+
+  .tw-feed-slot-inner {
+    position: absolute;
+    inset: 2px 8px 0;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.4), rgba(0,0,0,0.1));
+    border-radius: 0 0 1px 1px;
+  }
+
+  /* Side body panels – frame the paper on left and right */
+  .tw-body-side {
+    position: absolute;
+    width: 60px;
+    bottom: 40px; /* above bottom panel */
+    z-index: 31;
+    overflow: hidden;
+    box-shadow: 0 0 12px rgba(0,0,0,0.3);
+    transition: background 400ms ease;
+  }
+
+  .tw-body-left {
+    left: 0;
+    border-right: 2px solid rgba(0,0,0,0.35);
+    border-radius: 0 0 6px 0;
+  }
+
+  .tw-body-right {
+    right: 0;
+    border-left: 2px solid rgba(0,0,0,0.35);
+    border-radius: 0 0 0 6px;
+  }
+
+  /* Ribbon spool hint on side panels */
+  .tw-spool {
+    position: absolute;
+    top: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 28px;
+    height: 28px;
+    border-radius: 9999px;
+    border: 2px solid;
+    background: rgba(0,0,0,0.3);
+  }
+
+  .tw-spool-center {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%,-50%);
+    width: 8px;
+    height: 8px;
+    border-radius: 9999px;
+    border: 1px solid rgba(0,0,0,0.3);
+  }
+
+  /* Bottom body panel */
+  .tw-body-bottom {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 40px;
+    z-index: 31;
+    border-top: 2px solid rgba(0,0,0,0.4);
+    box-shadow: 0 -4px 16px rgba(0,0,0,0.3);
+    overflow: hidden;
+    transition: background 400ms ease;
+  }
+
+  /* Chrome trim line at bottom */
+  .tw-chrome-trim {
+    position: absolute;
+    top: 6px;
+    left: 10%;
+    right: 10%;
+    height: 1px;
+  }
+
+  /* Paper guide rails – thin chrome lines at top/bottom of paper window */
+  .tw-paper-guide {
+    position: absolute;
+    left: 60px;
+    right: 60px;
+    height: 0;
+    z-index: 32;
+    border-top: 1px solid rgba(180,175,165,0.25);
+    box-shadow: 0 1px 0 rgba(0,0,0,0.3);
+  }
+
+  /* Paper window shadow – creates depth where paper exits the machine */
+  .tw-paper-window-shadow-top {
+    position: absolute;
+    left: 60px;
+    right: 60px;
+    height: 24px;
+    z-index: 29;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.25), transparent);
+    pointer-events: none;
+  }
+
+  .tw-paper-window-shadow-bottom {
+    position: absolute;
+    left: 60px;
+    right: 60px;
+    height: 20px;
+    z-index: 29;
+    background: linear-gradient(to top, rgba(0,0,0,0.18), transparent);
+    pointer-events: none;
+  }
 }

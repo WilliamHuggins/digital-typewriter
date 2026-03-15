@@ -34,6 +34,67 @@ import {
   type CustomMargins,
 } from '../lib/documentModel';
 
+// ---------------------------------------------------------------------------
+// Per-model typewriter hardware aesthetics
+// ---------------------------------------------------------------------------
+const TYPEWRITER_HARDWARE = {
+  remington: {
+    bodyColor: '#2a2520',
+    bodyGradient: 'linear-gradient(180deg, #3a332c 0%, #2a2520 40%, #1e1a16 100%)',
+    accentColor: '#8b7355',
+    chromeColor: '#b8b0a0',
+    platenColor: '#1a1a1a',
+    nameplate: 'REMINGTON',
+    nameplateFont: 'font-special-elite',
+    nameplateStyle: 'italic' as const,
+    bodyTexture: 'crinkle',
+  },
+  underwood: {
+    bodyColor: '#1a1e24',
+    bodyGradient: 'linear-gradient(180deg, #2a2e34 0%, #1a1e24 40%, #12151a 100%)',
+    accentColor: '#c9a84c',
+    chromeColor: '#d4cfc4',
+    platenColor: '#0e0e0e',
+    nameplate: 'UNDERWOOD',
+    nameplateFont: 'font-cutive-mono',
+    nameplateStyle: 'normal' as const,
+    bodyTexture: 'smooth',
+  },
+  royal: {
+    bodyColor: '#1c2a3a',
+    bodyGradient: 'linear-gradient(180deg, #2a3a4c 0%, #1c2a3a 40%, #141e28 100%)',
+    accentColor: '#7ea8c8',
+    chromeColor: '#e0ddd6',
+    platenColor: '#111',
+    nameplate: 'ROYAL',
+    nameplateFont: 'font-courier-prime',
+    nameplateStyle: 'normal' as const,
+    bodyTexture: 'smooth',
+  },
+  olivetti: {
+    bodyColor: '#2d4a3e',
+    bodyGradient: 'linear-gradient(180deg, #3a5c4e 0%, #2d4a3e 40%, #1e332a 100%)',
+    accentColor: '#e8c86a',
+    chromeColor: '#ccc8be',
+    platenColor: '#151515',
+    nameplate: 'Olivetti',
+    nameplateFont: 'font-space-mono',
+    nameplateStyle: 'normal' as const,
+    bodyTexture: 'smooth',
+  },
+  ibm: {
+    bodyColor: '#32322e',
+    bodyGradient: 'linear-gradient(180deg, #444440 0%, #32322e 40%, #242420 100%)',
+    accentColor: '#cc4444',
+    chromeColor: '#d8d4cc',
+    platenColor: '#0a0a0a',
+    nameplate: 'IBM',
+    nameplateFont: 'font-cousine',
+    nameplateStyle: 'normal' as const,
+    bodyTexture: 'smooth',
+  },
+} as const;
+
 interface TypewriterProps {
   model: keyof typeof MODELS;
   ribbon: keyof typeof RIBBONS;
@@ -99,6 +160,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
   const activeModel = MODELS[model];
   const activeRibbon = RIBBONS[ribbon];
   const wearLevel = activeModel.wear;
+  const hw = TYPEWRITER_HARDWARE[model];
 
   // Map ribbon key to ribbon-contact CSS class
   const ribbonContactClass: Record<string, string> = {
@@ -888,6 +950,136 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
                 opacity: 0.16 + marginApproach * 0.46,
               }}
             />
+          </div>
+        </div>
+
+        {/* ================================================================
+            Typewriter Hardware Chassis Overlay
+            Renders the mechanical frame around the paper so it looks like
+            the sheet is fed through a real typewriter.
+            ================================================================ */}
+        <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 30 }}>
+
+          {/* ---- Top body panel (machine body above the paper window) ---- */}
+          <div
+            className="tw-body-top"
+            style={{
+              height: `${Math.max(TYPING_OFFSET_Y - 46, 50)}px`,
+              background: hw.bodyGradient,
+            }}
+          >
+            <div className={cn('tw-body-texture', hw.bodyTexture === 'crinkle' && 'tw-texture-crinkle')} />
+
+            {/* Nameplate */}
+            <div
+              className={cn('tw-nameplate', hw.nameplateFont)}
+              style={{
+                color: hw.accentColor,
+                fontStyle: hw.nameplateStyle,
+                borderColor: `${hw.accentColor}44`,
+              }}
+            >
+              {hw.nameplate}
+            </div>
+
+            {/* Paper feed slot */}
+            <div className="tw-feed-slot" style={{ borderColor: hw.bodyColor }}>
+              <div className="tw-feed-slot-inner" />
+            </div>
+          </div>
+
+          {/* ---- Platen roller (rubber cylinder at the typing line) ---- */}
+          <div
+            className="tw-platen"
+            style={{
+              top: `${TYPING_OFFSET_Y - 6}px`,
+              background: `linear-gradient(180deg,
+                ${hw.platenColor} 0%,
+                ${hw.platenColor}ee 18%,
+                #444 42%,
+                ${hw.platenColor} 58%,
+                ${hw.platenColor}cc 82%,
+                ${hw.platenColor} 100%)`,
+            }}
+          >
+            <div className="tw-platen-knob" style={{ left: '12px', background: hw.chromeColor }} />
+            <div className="tw-platen-knob" style={{ right: '12px', background: hw.chromeColor }} />
+            <div className="absolute inset-x-0 top-[48%] h-[1px] bg-white/8" />
+          </div>
+
+          {/* ---- Paper bail bar ---- */}
+          <div
+            className="tw-paper-bail"
+            style={{
+              top: `${TYPING_OFFSET_Y - 14}px`,
+              borderColor: `${hw.chromeColor}66`,
+            }}
+          >
+            <div className="tw-bail-roller" style={{ left: '32%', background: hw.chromeColor }} />
+            <div className="tw-bail-roller" style={{ left: '68%', background: hw.chromeColor }} />
+          </div>
+
+          {/* ---- Left body panel ---- */}
+          <div
+            className="tw-body-side tw-body-left"
+            style={{
+              top: `${Math.max(TYPING_OFFSET_Y - 46, 50)}px`,
+              background: hw.bodyGradient,
+            }}
+          >
+            <div className={cn('tw-body-texture', hw.bodyTexture === 'crinkle' && 'tw-texture-crinkle')} />
+            <div className="tw-spool" style={{ borderColor: `${hw.chromeColor}55` }}>
+              <div className="tw-spool-center" style={{ background: hw.chromeColor }} />
+            </div>
+          </div>
+
+          {/* ---- Right body panel ---- */}
+          <div
+            className="tw-body-side tw-body-right"
+            style={{
+              top: `${Math.max(TYPING_OFFSET_Y - 46, 50)}px`,
+              background: hw.bodyGradient,
+            }}
+          >
+            <div className={cn('tw-body-texture', hw.bodyTexture === 'crinkle' && 'tw-texture-crinkle')} />
+            <div className="tw-spool" style={{ borderColor: `${hw.chromeColor}55` }}>
+              <div className="tw-spool-center" style={{ background: hw.chromeColor }} />
+            </div>
+          </div>
+
+          {/* ---- Paper window shadows (depth illusion at machine edges) ---- */}
+          <div
+            className="tw-paper-window-shadow-top"
+            style={{ top: `${Math.max(TYPING_OFFSET_Y - 46, 50)}px` }}
+          />
+          <div
+            className="tw-paper-window-shadow-bottom"
+            style={{ bottom: '40px' }}
+          />
+
+          {/* ---- Paper guide rails ---- */}
+          <div
+            className="tw-paper-guide"
+            style={{
+              top: `${Math.max(TYPING_OFFSET_Y - 46, 50)}px`,
+              borderColor: `${hw.chromeColor}40`,
+            }}
+          />
+          <div
+            className="tw-paper-guide"
+            style={{
+              bottom: '40px',
+              borderColor: `${hw.chromeColor}30`,
+            }}
+          />
+
+          {/* ---- Bottom body panel ---- */}
+          <div
+            className="tw-body-bottom"
+            style={{ background: hw.bodyGradient }}
+          >
+            <div className={cn('tw-body-texture', hw.bodyTexture === 'crinkle' && 'tw-texture-crinkle')} />
+            <div className="tw-chrome-trim" style={{ background: `linear-gradient(90deg, transparent, ${hw.chromeColor}66, transparent)` }} />
           </div>
         </div>
       </div>
