@@ -3,6 +3,7 @@ import { toPng } from 'html-to-image';
 import { Toolbar, MODELS, RIBBONS } from './components/Toolbar';
 import { Typewriter } from './components/Typewriter';
 import { audioEngine, type AudioStatus } from './lib/audio';
+import { resolveResponsiveTier, type ResponsiveTier } from './lib/responsive';
 import { type PaperSizeKey, type MarginPresetKey, type CustomMargins, type DocumentModel } from './lib/documentModel';
 import { exportDocumentToPdf } from './lib/pdfExport';
 import type { RibbonWearState } from './lib/ribbonWear';
@@ -23,6 +24,8 @@ export default function App() {
     marginRight: 104,
   });
   const [disableBackspaceDelete, setDisableBackspaceDelete] = useState(false);
+  const [responsiveTier, setResponsiveTier] = useState<ResponsiveTier>('desktop');
+  const [mobileKeyboardOpen, setMobileKeyboardOpen] = useState(false);
 
   const paperRef = useRef<HTMLDivElement>(null);
   const latestDocRef = useRef<DocumentModel | null>(null);
@@ -40,6 +43,32 @@ export default function App() {
       audioEngine.init();
     }
   }, [audioEnabled]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const updateTier = () => {
+      setResponsiveTier(resolveResponsiveTier(window.innerWidth));
+    };
+
+    updateTier();
+    window.addEventListener('resize', updateTier);
+    return () => window.removeEventListener('resize', updateTier);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.visualViewport) return;
+
+    const viewport = window.visualViewport;
+    const detectKeyboard = () => {
+      const keyboardLikelyOpen = window.innerHeight - viewport.height > 140;
+      setMobileKeyboardOpen(keyboardLikelyOpen);
+    };
+
+    detectKeyboard();
+    viewport.addEventListener('resize', detectKeyboard);
+    return () => viewport.removeEventListener('resize', detectKeyboard);
+  }, []);
 
   const handleExportPNG = async () => {
     if (!paperRef.current) return;
@@ -73,8 +102,9 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-neutral-900 text-neutral-200 font-sans overflow-hidden">
+    <div className="flex flex-col min-h-[100dvh] bg-neutral-900 text-neutral-200 font-sans overflow-hidden">
       <Toolbar
+        responsiveTier={responsiveTier}
         model={model} setModel={setModel}
         ribbon={ribbon} setRibbon={setRibbon}
         volume={volume} setVolume={setVolume}
@@ -90,6 +120,8 @@ export default function App() {
         onExportPDF={handleExportPDF}
       />
       <Typewriter
+        responsiveTier={responsiveTier}
+        mobileKeyboardOpen={mobileKeyboardOpen}
         model={model}
         ribbon={ribbon}
         audioEnabled={audioEnabled}
