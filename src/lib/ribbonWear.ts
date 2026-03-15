@@ -18,6 +18,7 @@ interface RibbonPersonality {
 export interface RibbonWearState {
   activeRibbon: RibbonKey;
   impressionCount: number;
+  lineImpressions: number[];
 }
 
 export interface RibbonInkStyle {
@@ -85,26 +86,136 @@ export function createRibbonWearState(ribbon: RibbonKey): RibbonWearState {
   return {
     activeRibbon: ribbon,
     impressionCount: 0,
+    lineImpressions: [],
+  };
+}
+
+function clampToLineCount(lineImpressions: number[], lineCount: number): number[] {
+  if (lineCount <= 0) {
+    return [];
+  }
+
+  const next = lineImpressions.slice(0, lineCount);
+  while (next.length < lineCount) {
+    next.push(0);
+  }
+
+  return next;
+}
+
+export function buildLineImpressionLedger({
+  text,
+  insertedRange,
+  maxColumns,
+}: {
+  text: string;
+  insertedRange: { start: number; length: number };
+  maxColumns: number;
+}): { lineCount: number; addedImpressionsByLine: Map<number, number> } {
+  const safeColumns = Math.max(1, maxColumns);
+  const lineByCharIndex = new Map<number, number>();
+  let lineIndex = 0;
+  let currentLineLength = 0;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+
+    if (char === '\n') {
+      lineByCharIndex.set(i, lineIndex);
+      lineIndex += 1;
+      currentLineLength = 0;
+      continue;
+    }
+
+    if (char === ' ') {
+      lineByCharIndex.set(i, lineIndex);
+      if (currentLineLength + 1 <= safeColumns) {
+        currentLineLength += 1;
+      } else {
+        lineIndex += 1;
+        currentLineLength = 0;
+      }
+      continue;
+    }
+
+    let wordEnd = i;
+    while (wordEnd < text.length && text[wordEnd] !== ' ' && text[wordEnd] !== '\n') {
+      wordEnd += 1;
+    }
+
+    const wordLength = wordEnd - i;
+    if (currentLineLength !== 0 && currentLineLength + wordLength > safeColumns) {
+      lineIndex += 1;
+      currentLineLength = 0;
+    }
+
+    for (let wordIndex = i; wordIndex < wordEnd; wordIndex++) {
+      lineByCharIndex.set(wordIndex, lineIndex);
+    }
+
+    currentLineLength += wordLength;
+    i = wordEnd - 1;
+  }
+
+  const addedImpressionsByLine = new Map<number, number>();
+  const insertionStart = Math.max(0, insertedRange.start);
+  const insertionEnd = Math.min(text.length, insertionStart + Math.max(0, insertedRange.length));
+
+  for (let i = insertionStart; i < insertionEnd; i++) {
+    const char = text[i];
+    if (char === '\n') {
+      continue;
+    }
+
+    const charLineIndex = lineByCharIndex.get(i);
+    if (charLineIndex === undefined) {
+      continue;
+    }
+
+    addedImpressionsByLine.set(charLineIndex, (addedImpressionsByLine.get(charLineIndex) ?? 0) + 1);
+  }
+
+  return {
+    lineCount: lineIndex + 1,
+    addedImpressionsByLine,
   };
 }
 
 export function incrementRibbonWear(
   current: RibbonWearState,
   insertedChars: number,
-  activeRibbon: RibbonKey
+  activeRibbon: RibbonKey,
+  lineLedger?: { lineCount: number; addedImpressionsByLine: Map<number, number> }
 ): RibbonWearState {
   const safeInsertions = Math.max(0, insertedChars);
+  const nextLineCount = lineLedger?.lineCount ?? current.lineImpressions.length;
 
   if (current.activeRibbon !== activeRibbon) {
+    const nextLineImpressions = clampToLineCount([], nextLineCount);
+    if (lineLedger) {
+      for (const [lineIndex, addedImpressions] of lineLedger.addedImpressionsByLine.entries()) {
+        nextLineImpressions[lineIndex] = (nextLineImpressions[lineIndex] ?? 0) + addedImpressions;
+      }
+    }
+
     return {
       activeRibbon,
       impressionCount: safeInsertions,
+      lineImpressions: nextLineImpressions,
     };
+  }
+
+  const nextLineImpressions = clampToLineCount(current.lineImpressions, nextLineCount);
+  if (lineLedger) {
+    for (const [lineIndex, addedImpressions] of lineLedger.addedImpressionsByLine.entries()) {
+      nextLineImpressions[lineIndex] = (nextLineImpressions[lineIndex] ?? 0) + addedImpressions;
+    }
   }
 
   return {
     ...current,
     impressionCount: current.impressionCount + safeInsertions,
+    lineImpressions: nextLineImpressions,
   };
 }
 
@@ -124,7 +235,9 @@ export function calculateRibbonInkStyle({
   const profile = RIBBON_PERSONALITIES[ribbon];
   const charKey = char.toLowerCase();
   const activeWear = ribbon === state.activeRibbon ? state.impressionCount : 0;
+  const lineWear = ribbon === state.activeRibbon ? (state.lineImpressions[lineIndex] ?? 0) : 0;
   const wearPenalty = Math.min(0.36, activeWear * profile.wearRate);
+  const lineWearPenalty = Math.min(0.12, lineWear * profile.wearRate * 2.4);
 
   const lineShift = (pseudoRandom((lineIndex + 1) * 811 + activeWear * 0.17) - 0.5) * profile.lineVariance;
   const charShift = (pseudoRandom((charIndex + 1) * 193 + char.charCodeAt(0) * 17) - 0.5) * profile.charVariance;
@@ -137,13 +250,13 @@ export function calculateRibbonInkStyle({
       ? profile.rareHeavyStrike
       : 0;
 
-  const opacity = clamp(profile.baseInk - wearPenalty + lineShift + charShift + wornKeyShift + strikeShift, profile.minInk, profile.maxInk);
+  const opacity = clamp(profile.baseInk - wearPenalty - lineWearPenalty + lineShift + charShift + wornKeyShift + strikeShift, profile.minInk, profile.maxInk);
   const contrast = clamp(
-    profile.baseContrast + profile.contrastBias - wearPenalty * 0.32 + charShift * 0.65,
+    profile.baseContrast + profile.contrastBias - wearPenalty * 0.32 - lineWearPenalty * 0.28 + charShift * 0.65,
     0.88,
     1.14
   );
-  const brightness = clamp(1 - wearPenalty * 0.22 + lineShift * 0.4, 0.9, 1.07);
+  const brightness = clamp(1 - wearPenalty * 0.22 - lineWearPenalty * 0.18 + lineShift * 0.4, 0.9, 1.07);
 
   return { opacity, contrast, brightness };
 }
