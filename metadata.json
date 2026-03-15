@@ -1,0 +1,5 @@
+{
+  "name": "Digital Typewriter",
+  "description": "A realistic nostalgic digital typewriter web app with mechanical sounds, ink bleed, and PDF export.",
+  "requestFramePermissions": []
+}
