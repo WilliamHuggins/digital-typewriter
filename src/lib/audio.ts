@@ -33,10 +33,24 @@ export class TypewriterAudio {
     if (!this.ctx) return null;
     try {
       const response = await fetch(url);
+      if (!response.ok) {
+        console.error(`[audio] Failed to fetch sound ${url}: HTTP ${response.status}`);
+        return null;
+      }
+
       const arrayBuffer = await response.arrayBuffer();
+      if (arrayBuffer.byteLength === 0) {
+        console.error(`[audio] Failed to load sound ${url}: empty file`);
+        return null;
+      }
+
       return await this.ctx.decodeAudioData(arrayBuffer);
-    } catch (e) {
-      console.error(`Failed to load sound ${url}:`, e);
+    } catch (error) {
+      if (error instanceof Error) {
+        console.error(`[audio] Failed to decode sound ${url}: ${error.name}: ${error.message}`);
+      } else {
+        console.error(`[audio] Failed to decode sound ${url}:`, error);
+      }
       return null;
     }
   }
@@ -90,28 +104,39 @@ export class TypewriterAudio {
         await this.ctx.resume();
       }
 
-      // Load sounds if not already loaded
-      if (this.buffers.bell.length === 0) {
-        const loadAll = async (urls: string[]) => {
-          const bufs = await Promise.all(urls.map(url => this.loadSound(url)));
-          return bufs.filter(b => b !== null) as AudioBuffer[];
-        };
+      const loadAll = async (urls: string[], label: string) => {
+        const results = await Promise.all(urls.map(async (url) => ({ url, buffer: await this.loadSound(url) })));
+        const failed = results.filter((result) => result.buffer === null).map((result) => result.url);
+        if (failed.length > 0) {
+          console.warn(`[audio] ${label} loaded with missing assets: ${failed.join(', ')}`);
+        }
+        return results
+          .filter((result) => result.buffer !== null)
+          .map((result) => result.buffer as AudioBuffer);
+      };
 
-        this.buffers.models.remington = await loadAll(['/sounds/soft-click.wav', '/sounds/soft-hit.wav']);
-        this.buffers.models.underwood = await loadAll(['/sounds/old-typing.wav', '/sounds/mechanical-hit.wav', '/sounds/mechanical-single-hit.wav']);
-        this.buffers.models.royal = await loadAll(['/sounds/typewriter-hit.wav', '/sounds/single-mechanical-hit.wav']);
-        this.buffers.models.olivetti = await loadAll(['/sounds/hard-click.wav', '/sounds/keyboard-typing.wav']);
-        this.buffers.models.ibm = await loadAll(['/sounds/electric-typing.wav', '/sounds/electronic-typing.wav']);
+      this.buffers.models.remington = await loadAll(['/sounds/soft-click.wav', '/sounds/soft-hit.wav'], 'remington');
+      this.buffers.models.underwood = await loadAll(['/sounds/old-typing.wav', '/sounds/mechanical-hit.wav', '/sounds/mechanical-single-hit.wav'], 'underwood');
+      this.buffers.models.royal = await loadAll(['/sounds/typewriter-hit.wav', '/sounds/single-mechanical-hit.wav'], 'royal');
+      this.buffers.models.olivetti = await loadAll(['/sounds/hard-click.wav', '/sounds/keyboard-typing.wav'], 'olivetti');
+      this.buffers.models.ibm = await loadAll(['/sounds/electric-typing.wav', '/sounds/electronic-typing.wav'], 'ibm');
 
-        this.buffers.space = await loadAll(['/sounds/soft-hit.wav', '/sounds/soft-click.wav']);
-        this.buffers.bell = await loadAll(['/sounds/bell-1.wav', '/sounds/return-bell.wav']);
-        this.buffers.return = await loadAll(['/sounds/carriage-return-1.wav', '/sounds/carriage-return-2.flac']);
+      this.buffers.space = await loadAll(['/sounds/soft-hit.wav', '/sounds/soft-click.wav'], 'space');
+      this.buffers.bell = await loadAll(['/sounds/bell-1.wav'], 'bell');
+      this.buffers.return = await loadAll(
+        ['/sounds/carriage-return-1.wav', '/sounds/carriage-return-2.flac', '/sounds/mechanical-hit.wav'],
+        'return'
+      );
+
+      const hasAnyModelBuffers = Object.values(this.buffers.models).some((buffers) => buffers.length > 0);
+      const coreReady = this.buffers.space.length > 0 && this.buffers.bell.length > 0 && this.buffers.return.length > 0;
+
+      if (hasAnyModelBuffers && coreReady) {
+        this.setStatus('ready');
+      } else {
+        console.error('[audio] Initialization failed: no usable audio assets for one or more core categories');
+        this.setStatus('failed');
       }
-
-      const modelBuffersReady = Object.values(this.buffers.models).every((buffers) => buffers.length > 0);
-      const globalBuffersReady = this.buffers.space.length > 0 && this.buffers.bell.length > 0 && this.buffers.return.length > 0;
-
-      this.setStatus(modelBuffersReady && globalBuffersReady ? 'ready' : 'failed');
     })()
       .catch((error) => {
         console.error('Failed to initialize audio:', error);
