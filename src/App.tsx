@@ -1,10 +1,10 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { toPng, toJpeg } from 'html-to-image';
-import { jsPDF } from 'jspdf';
+import { toPng } from 'html-to-image';
 import { Toolbar, MODELS, RIBBONS } from './components/Toolbar';
 import { Typewriter } from './components/Typewriter';
 import { audioEngine, type AudioStatus } from './lib/audio';
-import { DEFAULT_PAGE_SPEC, PAPER_SIZES, MARGIN_PRESETS, type PaperSizeKey, type MarginPresetKey, type CustomMargins } from './lib/documentModel';
+import { type PaperSizeKey, type MarginPresetKey, type CustomMargins, type DocumentModel } from './lib/documentModel';
+import { exportDocumentToPdf } from './lib/pdfExport';
 
 export default function App() {
   const [model, setModel] = useState<keyof typeof MODELS>('remington');
@@ -23,6 +23,7 @@ export default function App() {
   });
 
   const paperRef = useRef<HTMLDivElement>(null);
+  const latestDocRef = useRef<DocumentModel | null>(null);
 
   useEffect(() => {
     const unsubscribe = audioEngine.onStatusChange(setAudioStatus);
@@ -54,34 +55,10 @@ export default function App() {
   };
 
   const handleExportPDF = async () => {
-    if (!paperRef.current) return;
+    if (!latestDocRef.current) return;
+
     try {
-      const pages = Array.from(paperRef.current.children) as HTMLElement[];
-      
-      const { width, height } = PAPER_SIZES[paperSize];
-
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'px',
-        format: [width, height]
-      });
-
-      for (let i = 0; i < pages.length; i++) {
-        const pageEl = pages[i];
-        const imgData = await toJpeg(pageEl, {
-          pixelRatio: 2,
-          backgroundColor: '#f4f1ea',
-          quality: 0.95,
-        });
-
-        if (i > 0) {
-          pdf.addPage([width, height], 'portrait');
-        }
-
-        pdf.addImage(imgData, 'JPEG', 0, 0, width, height);
-      }
-      
-      pdf.save(`typewriter-document-${Date.now()}.pdf`);
+      exportDocumentToPdf(latestDocRef.current);
     } catch (err) {
       console.error('Failed to export PDF', err);
     }
@@ -113,6 +90,9 @@ export default function App() {
         marginPreset={marginPreset}
         customMargins={customMargins}
         paperRef={paperRef}
+        onDocumentModelChange={(doc) => {
+          latestDocRef.current = doc;
+        }}
       />
     </div>
   );

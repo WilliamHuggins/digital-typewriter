@@ -45,6 +45,7 @@ interface TypewriterProps {
   marginPreset: MarginPresetKey;
   customMargins: CustomMargins;
   paperRef: React.RefObject<HTMLDivElement>;
+  onDocumentModelChange?: (doc: DocumentModel) => void;
 }
 
 interface CharFormat {
@@ -59,7 +60,7 @@ interface MechanicalMotionState {
   machineOffsetY: number;
 }
 
-export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, lineSpacing, paperSize, marginPreset, customMargins, paperRef }: TypewriterProps) {
+export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, lineSpacing, paperSize, marginPreset, customMargins, paperRef, onDocumentModelChange }: TypewriterProps) {
   const [text, setText] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [cursorPos, setCursorPos] = useState(0);
@@ -126,6 +127,10 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
     () => computeMarginGuideGeometry(pageSpec),
     [pageSpec],
   );
+
+  useEffect(() => {
+    onDocumentModelChange?.(doc);
+  }, [doc, onDocumentModelChange]);
 
   // ---------------------------------------------------------------------------
   // Effects (unchanged behaviour, now uses doc model constants)
