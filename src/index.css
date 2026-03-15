@@ -52,6 +52,15 @@
       linear-gradient(to top, rgba(80, 66, 44, 0.04), transparent 160px);
     opacity: 0.45;
   }
+
+  .margin-guides {
+    position: absolute;
+    pointer-events: none;
+    z-index: 1;
+    border: 1px dashed rgba(110, 95, 72, 0.26);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22) inset;
+    background: linear-gradient(to bottom, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0));
+  }
   
   .ink-bleed {
     text-shadow: 0.12px 0.1px 0.2px currentColor, -0.08px 0.05px 0.15px currentColor;

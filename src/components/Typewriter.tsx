@@ -22,6 +22,7 @@ import {
   cursorColumn,
   computeScrollPosition,
   computeMetrics,
+  computeMarginGuideGeometry,
   validateMargins,
   TYPING_OFFSET_Y,
   PAGE_GAP,
@@ -121,6 +122,10 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
   );
 
   const { metrics } = doc;
+  const marginGuides = useMemo(
+    () => computeMarginGuideGeometry(pageSpec),
+    [pageSpec],
+  );
 
   // ---------------------------------------------------------------------------
   // Effects (unchanged behaviour, now uses doc model constants)
@@ -551,6 +556,16 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
                 }}
               >
                 <div className="paper-impression" />
+                <div
+                  className="margin-guides"
+                  style={{
+                    top: `${marginGuides.top}px`,
+                    right: `${marginGuides.right}px`,
+                    bottom: `${marginGuides.bottom}px`,
+                    left: `${marginGuides.left}px`,
+                  }}
+                  aria-hidden="true"
+                />
                 <div className="relative z-10">
                   {page.lines.map((line, lineIndex) => {
                     const isCursorOnThisLine = viewingPage === null && cursorPageIdx === pageIndex && cursorLineIdx === lineIndex;
