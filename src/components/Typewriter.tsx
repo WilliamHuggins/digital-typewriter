@@ -7,6 +7,11 @@ import {
   evaluateBellState,
   shouldRearmBellAfterCursorOrEdit
 } from '../lib/carriageModel';
+import {
+  calculateRibbonInkStyle,
+  createRibbonWearState,
+  incrementRibbonWear,
+} from '../lib/ribbonWear';
 
 interface TypewriterProps {
   model: keyof typeof MODELS;
@@ -45,6 +50,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
   const [viewingPage, setViewingPage] = useState<number | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [scale, setScale] = useState(1);
+  const [ribbonWearState, setRibbonWearState] = useState(() => createRibbonWearState(ribbon));
   const containerRef = useRef<HTMLDivElement>(null);
   const bellArmedRef = useRef(true);
 
@@ -86,6 +92,10 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
       }
     }
   }, [model, ribbon, selectionStart, selectionEnd]);
+
+  useEffect(() => {
+    setRibbonWearState(createRibbonWearState(ribbon));
+  }, [ribbon]);
 
   // Load from session storage on mount
   useEffect(() => {
@@ -191,6 +201,14 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
       next.splice(prefixLen, oldReplacedLen, ...Array(newInsertedLen).fill({ model, ribbon }));
       return next;
     });
+
+    setRibbonWearState(prev => {
+      if (newText.length === 0) {
+        return createRibbonWearState(ribbon);
+      }
+
+      return incrementRibbonWear(prev, newInsertedLen, ribbon);
+    });
     
     setText(newText);
     setCursorPos(target.selectionStart);
@@ -293,19 +311,32 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
 
   let globalCharIndex = 0;
 
-  const getCharacterRenderStyle = (charSeedIndex: number) => {
+  const getCharacterRenderStyle = (
+    charSeedIndex: number,
+    charPos: number,
+    lineSeedIndex: number,
+    char: string,
+    charRibbonKey: keyof typeof RIBBONS
+  ) => {
     const seed = charSeedIndex * 1337;
     const xJitter = (pseudoRandom(seed) - 0.5) * 1.1 * wearLevel;
     const yJitter = (pseudoRandom(seed + 1) - 0.5) * 1.25 * wearLevel;
     const rotJitter = (pseudoRandom(seed + 2) - 0.5) * 1.6 * wearLevel;
-    const inkFade = pseudoRandom(seed + 3) * wearLevel * 0.32;
-    const pressVariance = (pseudoRandom(seed + 4) - 0.5) * wearLevel * 0.12;
+    const inkFade = pseudoRandom(seed + 3) * wearLevel * 0.22;
+    const pressVariance = (pseudoRandom(seed + 4) - 0.5) * wearLevel * 0.08;
     const spacingNudge = (pseudoRandom(seed + 5) - 0.5) * wearLevel * 0.04;
+    const ribbonInk = calculateRibbonInkStyle({
+      state: ribbonWearState,
+      ribbon: charRibbonKey,
+      char,
+      charIndex: charPos,
+      lineIndex: lineSeedIndex,
+    });
 
     return {
       transform: `translate(${xJitter}px, ${yJitter}px) rotate(${rotJitter}deg)`,
-      opacity: 0.9 - inkFade,
-      filter: `contrast(${1 + pressVariance})`,
+      opacity: (0.92 - inkFade) * ribbonInk.opacity,
+      filter: `contrast(${(ribbonInk.contrast + pressVariance).toFixed(3)}) brightness(${ribbonInk.brightness.toFixed(3)})`,
       marginRight: `${spacingNudge}em`,
     };
   };
@@ -498,7 +529,8 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
                                   const charRibbon = RIBBONS[format.ribbon];
                                   const isSelected = charPos >= selectionStart && charPos < selectionEnd;
                                   const i = globalCharIndex++;
-                                  const charStyle = getCharacterRenderStyle(i);
+                                  const lineSeedIndex = pageIndex * MAX_LINES_PER_PAGE + lineIndex;
+                                  const charStyle = getCharacterRenderStyle(i, charPos, lineSeedIndex, char, format.ribbon);
 
                                   return (
                                     <span key={charIndex} className="inline-block relative" onClick={(e) => {
