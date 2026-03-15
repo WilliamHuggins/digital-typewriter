@@ -97,6 +97,20 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
   const returnMotionTimeoutsRef = useRef<number[]>([]);
 
   const activeModel = MODELS[model];
+
+  const modelChassisPalette: Record<keyof typeof MODELS, {
+    warm: string;
+    cool: string;
+    base: string;
+  }> = {
+    remington: { warm: '150, 94, 58', cool: '66, 96, 146', base: '126, 88, 54' },
+    underwood: { warm: '130, 86, 52', cool: '82, 108, 138', base: '122, 96, 68' },
+    royal: { warm: '132, 62, 50', cool: '68, 90, 126', base: '112, 76, 64' },
+    olivetti: { warm: '180, 112, 66', cool: '72, 118, 142', base: '138, 112, 76' },
+    ibm: { warm: '118, 86, 62', cool: '92, 126, 160', base: '94, 110, 132' },
+  };
+
+  const chassisPalette = modelChassisPalette[model];
   const activeRibbon = RIBBONS[ribbon];
   const wearLevel = activeModel.wear;
 
@@ -586,10 +600,14 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
 
   const scroll = computeScrollPosition(doc, activePageIdx, activeLineIdx, scale);
 
-  const paperTransform = `translate3d(${motionState.carriageOffsetX}px, ${scroll.transformY + motionState.paperOffsetY}px, 0) scale(${scale})`;
+  const cursorColumnOnLine = cursorColumn(doc, cursor, cursorPos);
+  const carriageTravelOffset = prefersReducedMotion
+    ? 0
+    : -Math.min(cursorColumnOnLine * pageSpec.charWidth * 0.14, pageSpec.paper.width * 0.06);
+
+  const paperTransform = `translate3d(${motionState.carriageOffsetX + carriageTravelOffset}px, ${scroll.transformY + motionState.paperOffsetY}px, 0) scale(${scale})`;
   const guideTransform = `translate3d(${motionState.machineOffsetX}px, ${motionState.machineOffsetY}px, 0) scale(${scale})`;
 
-  const cursorColumnOnLine = cursorColumn(doc, cursor, cursorPos);
   const carriageCueX = pageSpec.marginLeft + cursorColumnOnLine * pageSpec.charWidth;
   const rightMarginX = pageSpec.marginLeft + metrics.maxCharsPerLine * pageSpec.charWidth;
   const marginApproach = Math.min(1, Math.max(0, (cursorColumnOnLine / metrics.maxCharsPerLine - 0.72) / 0.28));
@@ -665,7 +683,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
         {/* Paper Container – pages rendered from document model */}
         <div
           className={cn(
-            'absolute top-0 origin-top will-change-transform',
+            'absolute top-0 origin-top will-change-transform z-10',
             prefersReducedMotion ? 'transition-transform duration-75 linear' : 'transition-transform duration-150 ease-out'
           )}
           style={{ transform: paperTransform }}
@@ -861,9 +879,42 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
           </div>
         </div>
 
+        {/* Machine window/chassis – frames paper without obscuring typing area */}
+        <div
+          className="absolute left-0 w-full pointer-events-none flex justify-center z-20"
+          style={{
+            top: `${TYPING_OFFSET_Y - pageSpec.marginTop - 70}px`,
+            height: `${pageSpec.paper.height + 140}px`,
+          }}
+        >
+          <div
+            className={cn("typewriter-machine-frame", `machine-model-${model}`)}
+            style={{
+              width: `${pageSpec.paper.width + 124}px`,
+              transform: guideTransform,
+              transformOrigin: 'center',
+              ['--machine-warm' as string]: chassisPalette.warm,
+              ['--machine-cool' as string]: chassisPalette.cool,
+              ['--machine-base' as string]: chassisPalette.base,
+            }}
+            aria-hidden="true"
+          >
+            <div className="machine-color-wash" />
+            <div className="machine-frame-top" />
+            <div className="machine-frame-sides" />
+            <div className="machine-paper-window" />
+            <div className="machine-platen-assembly">
+              <div className="machine-platen-roller" />
+              <div className="machine-ribbon-band" />
+              <div className="machine-strike-shadow" />
+            </div>
+            <div className="machine-frame-bottom" />
+          </div>
+        </div>
+
         {/* Typewriter Guide overlay */}
         <div
-          className="absolute left-0 w-full pointer-events-none flex justify-center"
+          className="absolute left-0 w-full pointer-events-none flex justify-center z-30"
           style={{ top: `${TYPING_OFFSET_Y}px`, height: `${metrics.lineHeight}px` }}
         >
           <div

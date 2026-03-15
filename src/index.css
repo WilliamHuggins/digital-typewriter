@@ -72,6 +72,136 @@
     text-shadow: 0 0 1px rgba(0,0,0,0.4);
   }
 
+
+  .typewriter-machine-frame {
+    position: relative;
+    height: 100%;
+    border-radius: 24px 24px 18px 18px;
+    background:
+      linear-gradient(180deg, rgba(58, 62, 70, 0.42) 0%, rgba(34, 37, 44, 0.36) 54%, rgba(28, 31, 37, 0.44) 100%);
+    box-shadow:
+      0 16px 30px -30px rgba(0, 0, 0, 0.88),
+      0 1px 0 rgba(255, 255, 255, 0.15) inset,
+      0 -1px 0 rgba(12, 13, 17, 0.28) inset;
+    overflow: hidden;
+  }
+
+
+  .machine-model-remington {
+    background: linear-gradient(180deg, rgba(78, 61, 47, 0.48) 0%, rgba(44, 40, 42, 0.38) 54%, rgba(34, 35, 41, 0.46) 100%);
+  }
+
+  .machine-model-underwood {
+    background: linear-gradient(180deg, rgba(84, 70, 52, 0.46) 0%, rgba(43, 46, 48, 0.37) 54%, rgba(35, 39, 43, 0.45) 100%);
+  }
+
+  .machine-model-royal {
+    background: linear-gradient(180deg, rgba(84, 56, 56, 0.48) 0%, rgba(46, 40, 46, 0.37) 54%, rgba(36, 35, 42, 0.45) 100%);
+  }
+
+  .machine-model-olivetti {
+    background: linear-gradient(180deg, rgba(96, 84, 58, 0.46) 0%, rgba(45, 50, 52, 0.36) 54%, rgba(36, 42, 45, 0.44) 100%);
+  }
+
+  .machine-model-ibm {
+    background: linear-gradient(180deg, rgba(72, 82, 98, 0.46) 0%, rgba(43, 49, 58, 0.36) 54%, rgba(33, 41, 50, 0.44) 100%);
+  }
+
+  .machine-color-wash {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(120% 85% at 0% 0%, rgba(var(--machine-warm, 132, 84, 52), 0.24), transparent 52%),
+      radial-gradient(120% 90% at 100% 8%, rgba(var(--machine-cool, 62, 96, 142), 0.2), transparent 54%),
+      radial-gradient(90% 70% at 50% 95%, rgba(var(--machine-base, 116, 82, 44), 0.17), transparent 62%);
+    opacity: 0.82;
+    mix-blend-mode: screen;
+    pointer-events: none;
+  }
+
+  .machine-frame-top {
+    position: absolute;
+    top: 0;
+    left: 10%;
+    right: 10%;
+    height: 76px;
+    border-radius: 0 0 20px 20px;
+    background: linear-gradient(to bottom, rgba(26, 29, 36, 0.56), rgba(26, 29, 36, 0.14));
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.14) inset;
+  }
+
+  .machine-frame-sides {
+    position: absolute;
+    inset: 70px 0 110px;
+    border-left: 30px solid rgba(20, 23, 30, 0.24);
+    border-right: 30px solid rgba(20, 23, 30, 0.24);
+    box-shadow:
+      1px 0 0 rgba(255, 255, 255, 0.09) inset,
+      -1px 0 0 rgba(255, 255, 255, 0.09) inset;
+  }
+
+  .machine-paper-window {
+    position: absolute;
+    inset: 72px 34px 112px;
+    border-radius: 8px;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.01) 38%, rgba(255, 255, 255, 0.08));
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.12) inset,
+      0 0 0 2px rgba(11, 14, 18, 0.2) inset;
+  }
+
+  .machine-platen-assembly {
+    position: absolute;
+    left: 48px;
+    right: 48px;
+    top: 102px;
+    height: 20px;
+    pointer-events: none;
+  }
+
+  .machine-platen-roller {
+    position: absolute;
+    inset: 0;
+    border-radius: 9999px;
+    background: linear-gradient(to bottom, rgba(74, 81, 92, 0.58), rgba(34, 40, 50, 0.62));
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.16) inset,
+      0 -1px 0 rgba(0, 0, 0, 0.25) inset,
+      0 4px 8px -8px rgba(0, 0, 0, 0.55);
+  }
+
+  .machine-ribbon-band {
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    top: 11px;
+    height: 3px;
+    border-radius: 9999px;
+    background: linear-gradient(to right, rgba(74, 28, 28, 0.16), rgba(130, 52, 52, 0.34), rgba(74, 28, 28, 0.16));
+    box-shadow: 0 0 8px rgba(42, 10, 10, 0.18);
+  }
+
+  .machine-strike-shadow {
+    position: absolute;
+    left: 5%;
+    right: 5%;
+    top: 13px;
+    height: 12px;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.14), transparent 85%);
+    opacity: 0.36;
+  }
+
+  .machine-frame-bottom {
+    position: absolute;
+    left: 9%;
+    right: 9%;
+    bottom: 0;
+    height: 84px;
+    border-radius: 22px 22px 0 0;
+    background: linear-gradient(to top, rgba(28, 31, 38, 0.5), rgba(48, 52, 62, 0.16));
+    box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.12) inset;
+  }
+
   .typewriter-caret {
     width: 0.58em;
     height: 1.18em;
