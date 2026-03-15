@@ -882,6 +882,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
             }}
             aria-hidden="true"
           >
+            <div className="machine-color-wash" />
             <div className="machine-frame-top" />
             <div className="machine-frame-sides" />
             <div className="machine-paper-window" />

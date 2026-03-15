@@ -78,12 +78,24 @@
     height: 100%;
     border-radius: 24px 24px 18px 18px;
     background:
-      linear-gradient(180deg, rgba(38, 41, 47, 0.64) 0%, rgba(20, 22, 27, 0.58) 56%, rgba(14, 15, 19, 0.72) 100%);
+      linear-gradient(180deg, rgba(58, 62, 70, 0.42) 0%, rgba(34, 37, 44, 0.36) 54%, rgba(28, 31, 37, 0.44) 100%);
     box-shadow:
-      0 22px 36px -32px rgba(0, 0, 0, 0.95),
-      0 2px 0 rgba(255, 255, 255, 0.07) inset,
-      0 -1px 0 rgba(0, 0, 0, 0.42) inset;
+      0 16px 30px -30px rgba(0, 0, 0, 0.88),
+      0 1px 0 rgba(255, 255, 255, 0.15) inset,
+      0 -1px 0 rgba(12, 13, 17, 0.28) inset;
     overflow: hidden;
+  }
+
+  .machine-color-wash {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(120% 85% at 0% 0%, rgba(132, 84, 52, 0.22), transparent 52%),
+      radial-gradient(120% 90% at 100% 8%, rgba(62, 96, 142, 0.18), transparent 54%),
+      radial-gradient(90% 70% at 50% 95%, rgba(116, 82, 44, 0.16), transparent 62%);
+    opacity: 0.8;
+    mix-blend-mode: screen;
+    pointer-events: none;
   }
 
   .machine-frame-top {
@@ -93,28 +105,28 @@
     right: 10%;
     height: 76px;
     border-radius: 0 0 20px 20px;
-    background: linear-gradient(to bottom, rgba(12, 13, 16, 0.72), rgba(12, 13, 16, 0.22));
-    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.1) inset;
+    background: linear-gradient(to bottom, rgba(26, 29, 36, 0.56), rgba(26, 29, 36, 0.14));
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.14) inset;
   }
 
   .machine-frame-sides {
     position: absolute;
     inset: 70px 0 110px;
-    border-left: 34px solid rgba(14, 15, 19, 0.42);
-    border-right: 34px solid rgba(14, 15, 19, 0.42);
+    border-left: 30px solid rgba(20, 23, 30, 0.24);
+    border-right: 30px solid rgba(20, 23, 30, 0.24);
     box-shadow:
-      1px 0 0 rgba(255, 255, 255, 0.06) inset,
-      -1px 0 0 rgba(255, 255, 255, 0.06) inset;
+      1px 0 0 rgba(255, 255, 255, 0.09) inset,
+      -1px 0 0 rgba(255, 255, 255, 0.09) inset;
   }
 
   .machine-paper-window {
     position: absolute;
-    inset: 72px 36px 112px;
+    inset: 72px 34px 112px;
     border-radius: 8px;
-    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.16), rgba(0, 0, 0, 0.02) 38%, rgba(255, 255, 255, 0.04));
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.01) 38%, rgba(255, 255, 255, 0.08));
     box-shadow:
-      0 0 0 1px rgba(255, 255, 255, 0.08) inset,
-      0 0 0 2px rgba(0, 0, 0, 0.28) inset;
+      0 0 0 1px rgba(255, 255, 255, 0.12) inset,
+      0 0 0 2px rgba(11, 14, 18, 0.2) inset;
   }
 
   .machine-platen-assembly {
@@ -130,11 +142,11 @@
     position: absolute;
     inset: 0;
     border-radius: 9999px;
-    background: linear-gradient(to bottom, rgba(48, 53, 61, 0.72), rgba(24, 28, 36, 0.8));
+    background: linear-gradient(to bottom, rgba(74, 81, 92, 0.58), rgba(34, 40, 50, 0.62));
     box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.12) inset,
-      0 -1px 0 rgba(0, 0, 0, 0.45) inset,
-      0 4px 8px -8px rgba(0, 0, 0, 0.9);
+      0 1px 0 rgba(255, 255, 255, 0.16) inset,
+      0 -1px 0 rgba(0, 0, 0, 0.25) inset,
+      0 4px 8px -8px rgba(0, 0, 0, 0.55);
   }
 
   .machine-ribbon-band {
@@ -144,8 +156,8 @@
     top: 11px;
     height: 3px;
     border-radius: 9999px;
-    background: linear-gradient(to right, rgba(28, 18, 18, 0.12), rgba(48, 26, 26, 0.34), rgba(28, 18, 18, 0.12));
-    box-shadow: 0 0 8px rgba(20, 5, 5, 0.15);
+    background: linear-gradient(to right, rgba(74, 28, 28, 0.16), rgba(130, 52, 52, 0.34), rgba(74, 28, 28, 0.16));
+    box-shadow: 0 0 8px rgba(42, 10, 10, 0.18);
   }
 
   .machine-strike-shadow {
@@ -154,8 +166,8 @@
     right: 5%;
     top: 13px;
     height: 12px;
-    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.18), transparent 85%);
-    opacity: 0.45;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.14), transparent 85%);
+    opacity: 0.36;
   }
 
   .machine-frame-bottom {
@@ -165,8 +177,8 @@
     bottom: 0;
     height: 84px;
     border-radius: 22px 22px 0 0;
-    background: linear-gradient(to top, rgba(18, 20, 24, 0.66), rgba(32, 34, 40, 0.22));
-    box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.08) inset;
+    background: linear-gradient(to top, rgba(28, 31, 38, 0.5), rgba(48, 52, 62, 0.16));
+    box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.12) inset;
   }
 
   .typewriter-caret {
