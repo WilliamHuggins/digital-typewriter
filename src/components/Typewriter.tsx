@@ -86,6 +86,11 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
     machineOffsetX: 0,
     machineOffsetY: 0,
   });
+  // Strike effect: tracks the char index and a monotonic counter for re-triggers
+  const [strikeEffect, setStrikeEffect] = useState<{ charIndex: number; seq: number } | null>(null);
+  const strikeSeqRef = useRef(0);
+  const strikeTimeoutRef = useRef<number | null>(null);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const bellArmedRef = useRef(true);
   const typeMotionTimeoutRef = useRef<number | null>(null);
@@ -94,6 +99,14 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
   const activeModel = MODELS[model];
   const activeRibbon = RIBBONS[ribbon];
   const wearLevel = activeModel.wear;
+
+  // Map ribbon key to ribbon-contact CSS class
+  const ribbonContactClass: Record<string, string> = {
+    black: 'ribbon-contact-black',
+    red: 'ribbon-contact-red',
+    blue: 'ribbon-contact-blue',
+    stencil: 'ribbon-contact-stencil',
+  };
 
   // ---------------------------------------------------------------------------
   // Document model – the single source of truth for page/line layout
@@ -231,6 +244,9 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
     if (typeMotionTimeoutRef.current) {
       window.clearTimeout(typeMotionTimeoutRef.current);
     }
+    if (strikeTimeoutRef.current) {
+      window.clearTimeout(strikeTimeoutRef.current);
+    }
     returnMotionTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
   }, []);
 
@@ -305,6 +321,26 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
   };
 
   // ---------------------------------------------------------------------------
+  // Strike effect – triggered when a printable character is typed
+  // ---------------------------------------------------------------------------
+
+  const triggerStrikeEffect = (charIndex: number) => {
+    if (prefersReducedMotion) return;
+
+    if (strikeTimeoutRef.current) {
+      window.clearTimeout(strikeTimeoutRef.current);
+    }
+
+    strikeSeqRef.current += 1;
+    setStrikeEffect({ charIndex, seq: strikeSeqRef.current });
+
+    // Clear effect after longest animation completes (160ms)
+    strikeTimeoutRef.current = window.setTimeout(() => {
+      setStrikeEffect(null);
+    }, 180);
+  };
+
+  // ---------------------------------------------------------------------------
   // Bell (uses metrics from the document model)
   // ---------------------------------------------------------------------------
 
@@ -339,6 +375,8 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
 
     if (isPrintable) {
       e.preventDefault();
+      // Trigger strike effect at the position where the character will land
+      triggerStrikeEffect(target.selectionStart);
       applyManualStrike(e.key, target);
     }
 
@@ -355,6 +393,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
       audioEngine.playRibbon(model);
       maybePlayBell(nextCursorPos);
       triggerTypingMotion();
+      triggerStrikeEffect(target.selectionStart);
     } else if (e.key.length === 1) {
       audioEngine.playKeypress(false, model);
       audioEngine.playRibbon(model);
@@ -708,10 +747,11 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
                             const charModel = MODELS[format.model];
                             const charRibbon = RIBBONS[format.ribbon];
                             const isSelected = token.index >= selectionStart && token.index < selectionEnd;
+                            const isSpaceStruck = strikeEffect !== null && strikeEffect.charIndex === token.index;
 
                             return (
                               <span
-                                key={tokenIndex}
+                                key={isSpaceStruck ? `${tokenIndex}-s${strikeEffect.seq}` : tokenIndex}
                                 className={cn(
                                   "inline-block relative whitespace-pre",
                                   charModel.font,
@@ -732,6 +772,9 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
                                   <span className="typewriter-caret absolute left-0 mt-[1px]" />
                                 )}
                                 {' '}
+                                {isSpaceStruck && (
+                                  <span className={cn("ribbon-contact", ribbonContactClass[format.ribbon] || 'ribbon-contact-black')} />
+                                )}
                                 {isCursorOnThisLine && isLastToken && cursorPos === token.index + 1 && selectionStart === selectionEnd && (
                                   <span className="typewriter-caret absolute right-0 translate-x-full mt-[1px]" />
                                 )}
@@ -761,8 +804,10 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
                                     opacity: Math.min(1, 0.84 + (emphasis.strikeCount - 1) * 0.08),
                                   };
 
+                                  const isStruck = strikeEffect !== null && strikeEffect.charIndex === charPos;
+
                                   return (
-                                    <span key={charIndex} className="inline-block relative" onClick={(e) => {
+                                    <span key={isStruck ? `${charIndex}-s${strikeEffect.seq}` : charIndex} className="inline-block relative" onClick={(e) => {
                                       e.stopPropagation();
                                       const rect = (e.target as HTMLElement).getBoundingClientRect();
                                       const clickX = e.clientX - rect.left;
@@ -783,11 +828,18 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
                                           charModel.font,
                                           charRibbon !== 'ink-stencil' && charRibbon,
                                           charRibbon === 'ink-stencil' && 'ink-stencil',
-                                          isSelected && "bg-blue-500/30"
+                                          isSelected && "bg-blue-500/30",
+                                          isStruck && "strike-impact"
                                         )}
                                         style={charStyle}
                                       >
                                         {char}
+                                        {isStruck && (
+                                          <>
+                                            <span className={cn("ribbon-contact", ribbonContactClass[format.ribbon] || 'ribbon-contact-black')} />
+                                            <span className="strike-shadow" />
+                                          </>
+                                        )}
                                       </span>
                                       {isCursorOnThisLine && isLastToken && charIndex === token.text.length - 1 && cursorPos === charPos + 1 && selectionStart === selectionEnd && (
                                         <span className="typewriter-caret absolute right-0 translate-x-full mt-[1px]" />
