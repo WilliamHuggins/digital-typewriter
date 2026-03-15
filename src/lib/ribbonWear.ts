@@ -38,12 +38,15 @@ interface ChunkDescriptor {
   head: string;
   tail: string;
   length: number;
+  lexicalSignature: number[];
 }
 
 interface PersistentChunk {
   id: number;
   descriptor: ChunkDescriptor;
   lastIndex: number;
+  editFingerprint: number;
+  recentSignatures: number[];
 }
 
 interface ChunkCache {
@@ -273,7 +276,7 @@ function buildRenderedLineLayout(text: string, maxColumns: number): {
     lineContentByIndex,
   });
 
-  const chunkDescriptors = text.split('\n').map(chunkText => toLineDescriptor(chunkText));
+  const chunkDescriptors = text.split('\n').map(chunkText => toChunkDescriptor(chunkText));
 
   return {
     lineByCharIndex,
@@ -357,6 +360,48 @@ function toLineDescriptor(lineText: string): LineDescriptor {
     length: normalized.length,
     tokenAnchors: buildSparseTokenAnchors(normalized),
   };
+}
+
+function toChunkDescriptor(chunkText: string): ChunkDescriptor {
+  const normalized = chunkText.trim();
+  return {
+    hash: hashText(normalized),
+    head: normalized.slice(0, 16),
+    tail: normalized.slice(-16),
+    length: normalized.length,
+    lexicalSignature: buildChunkLexicalSignature(normalized),
+  };
+}
+
+function buildChunkLexicalSignature(text: string): number[] {
+  if (!text) {
+    return [];
+  }
+
+  const tokenPattern = /[a-z0-9']+/gi;
+  const tokens = Array.from(text.matchAll(tokenPattern), (match) => (match[0] ?? '').toLowerCase()).filter(Boolean);
+  if (tokens.length === 0) {
+    return [];
+  }
+
+  const selected = new Set<string>();
+  const pickToken = (index: number) => {
+    const token = tokens[index];
+    if (token) {
+      selected.add(token);
+    }
+  };
+
+  pickToken(0);
+  pickToken(Math.floor((tokens.length - 1) / 2));
+  pickToken(tokens.length - 1);
+
+  if (tokens.length >= 2) {
+    selected.add(`${tokens[0]} ${tokens[1]}`);
+    selected.add(`${tokens[Math.max(0, tokens.length - 2)]} ${tokens[tokens.length - 1]}`);
+  }
+
+  return Array.from(selected).map(hashText).sort((a, b) => a - b).slice(0, 6);
 }
 
 function buildSparseTokenAnchors(text: string): TokenAnchor[] {
@@ -745,6 +790,7 @@ function assignPersistentChunkIds(
 ): { nextChunkCache: ChunkCache; lineDescriptorsWithChunkIds: LineDescriptor[] } {
   const takenPrevious = new Set<number>();
   let nextId = previousCache.nextId;
+  const matchedPreviousIndices: number[] = [];
   const assignedChunkIds = lineLedger.chunkDescriptors.map((nextChunk, nextChunkIndex) => {
     let bestPreviousIndex = -1;
     let bestScore = Number.NEGATIVE_INFINITY;
@@ -762,21 +808,30 @@ function assignPersistentChunkIds(
       }
     }
 
-    if (bestPreviousIndex !== -1 && bestScore >= 4.5) {
+    if (bestPreviousIndex !== -1 && bestScore >= 3.5) {
       takenPrevious.add(bestPreviousIndex);
+      matchedPreviousIndices[nextChunkIndex] = bestPreviousIndex;
       return previousCache.chunks[bestPreviousIndex].id;
     }
 
     const createdId = nextId;
     nextId += 1;
+    matchedPreviousIndices[nextChunkIndex] = -1;
     return createdId;
   });
 
-  const nextChunks = lineLedger.chunkDescriptors.map((descriptor, chunkIndex) => ({
-    id: assignedChunkIds[chunkIndex],
-    descriptor,
-    lastIndex: chunkIndex,
-  }));
+  const nextChunks = lineLedger.chunkDescriptors.map((descriptor, chunkIndex) => {
+    const matchedPreviousIndex = matchedPreviousIndices[chunkIndex] ?? -1;
+    const matchedPreviousChunk = matchedPreviousIndex >= 0 ? previousCache.chunks[matchedPreviousIndex] : undefined;
+    const previousFingerprint = matchedPreviousChunk?.editFingerprint ?? 2166136261;
+    return {
+      id: assignedChunkIds[chunkIndex],
+      descriptor,
+      lastIndex: chunkIndex,
+      editFingerprint: evolveEditFingerprint(previousFingerprint, descriptor),
+      recentSignatures: mergeRecentSignatures(matchedPreviousChunk?.recentSignatures ?? [], descriptor.lexicalSignature),
+    };
+  });
 
   const lineDescriptorsWithChunkIds = lineLedger.lineDescriptors.map(line => ({
     ...line,
@@ -796,9 +851,61 @@ function scoreChunkSimilarity(previousChunk: PersistentChunk, nextChunk: ChunkDe
   const hashBonus = previousChunk.descriptor.hash === nextChunk.hash ? 10 : 0;
   const prefixMatches = sharedPrefixLength(previousChunk.descriptor.head, nextChunk.head);
   const suffixMatches = sharedSuffixLength(previousChunk.descriptor.tail, nextChunk.tail);
+  const historicalSignal = scoreHistoricalSignatureSimilarity(previousChunk.recentSignatures, nextChunk.lexicalSignature);
   const lengthPenalty = Math.abs(previousChunk.descriptor.length - nextChunk.length) * 0.25;
   const indexPenalty = Math.abs(previousChunk.lastIndex - nextChunkIndex) * 1.15;
-  return hashBonus + prefixMatches * 0.7 + suffixMatches * 0.55 - lengthPenalty - indexPenalty;
+  return hashBonus + historicalSignal * 4.8 + prefixMatches * 0.7 + suffixMatches * 0.55 - lengthPenalty - indexPenalty;
+}
+
+function scoreHistoricalSignatureSimilarity(previousHistory: number[], nextSignature: number[]): number {
+  if (previousHistory.length === 0 || nextSignature.length === 0) {
+    return 0;
+  }
+
+  const previousSet = new Set(previousHistory);
+  let matches = 0;
+  for (const signature of nextSignature) {
+    if (previousSet.has(signature)) {
+      matches += 1;
+    }
+  }
+
+  if (matches === 0) {
+    return 0;
+  }
+
+  return matches / Math.max(1, nextSignature.length);
+}
+
+function evolveEditFingerprint(previousFingerprint: number, descriptor: ChunkDescriptor): number {
+  let nextFingerprint = previousFingerprint >>> 0;
+  nextFingerprint ^= descriptor.hash;
+  nextFingerprint = Math.imul(nextFingerprint, 16777619) >>> 0;
+
+  for (const signatureHash of descriptor.lexicalSignature) {
+    nextFingerprint ^= signatureHash;
+    nextFingerprint = Math.imul(nextFingerprint, 16777619) >>> 0;
+  }
+
+  return nextFingerprint >>> 0;
+}
+
+function mergeRecentSignatures(previous: number[], current: number[]): number[] {
+  const seen = new Set<number>();
+  const merged: number[] = [];
+  for (const signature of [...current, ...previous]) {
+    if (seen.has(signature)) {
+      continue;
+    }
+
+    seen.add(signature);
+    merged.push(signature);
+    if (merged.length >= 12) {
+      break;
+    }
+  }
+
+  return merged;
 }
 
 export function calculateRibbonInkStyle({
