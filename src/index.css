@@ -90,10 +90,10 @@
     position: absolute;
     inset: 0;
     background:
-      radial-gradient(120% 85% at 0% 0%, rgba(132, 84, 52, 0.22), transparent 52%),
-      radial-gradient(120% 90% at 100% 8%, rgba(62, 96, 142, 0.18), transparent 54%),
-      radial-gradient(90% 70% at 50% 95%, rgba(116, 82, 44, 0.16), transparent 62%);
-    opacity: 0.8;
+      radial-gradient(120% 85% at 0% 0%, rgba(var(--machine-warm, 132, 84, 52), 0.24), transparent 52%),
+      radial-gradient(120% 90% at 100% 8%, rgba(var(--machine-cool, 62, 96, 142), 0.2), transparent 54%),
+      radial-gradient(90% 70% at 50% 95%, rgba(var(--machine-base, 116, 82, 44), 0.17), transparent 62%);
+    opacity: 0.82;
     mix-blend-mode: screen;
     pointer-events: none;
   }

@@ -97,6 +97,20 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
   const returnMotionTimeoutsRef = useRef<number[]>([]);
 
   const activeModel = MODELS[model];
+
+  const modelChassisPalette: Record<keyof typeof MODELS, {
+    warm: string;
+    cool: string;
+    base: string;
+  }> = {
+    remington: { warm: '150, 94, 58', cool: '66, 96, 146', base: '126, 88, 54' },
+    underwood: { warm: '130, 86, 52', cool: '82, 108, 138', base: '122, 96, 68' },
+    royal: { warm: '132, 62, 50', cool: '68, 90, 126', base: '112, 76, 64' },
+    olivetti: { warm: '180, 112, 66', cool: '72, 118, 142', base: '138, 112, 76' },
+    ibm: { warm: '118, 86, 62', cool: '92, 126, 160', base: '94, 110, 132' },
+  };
+
+  const chassisPalette = modelChassisPalette[model];
   const activeRibbon = RIBBONS[ribbon];
   const wearLevel = activeModel.wear;
 
@@ -879,6 +893,9 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
               width: `${pageSpec.paper.width + 124}px`,
               transform: guideTransform,
               transformOrigin: 'center',
+              ['--machine-warm' as string]: chassisPalette.warm,
+              ['--machine-cool' as string]: chassisPalette.cool,
+              ['--machine-base' as string]: chassisPalette.base,
             }}
             aria-hidden="true"
           >
