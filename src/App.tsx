@@ -21,6 +21,7 @@ export default function App() {
     marginLeft: 104,
     marginRight: 104,
   });
+  const [disableBackspaceDelete, setDisableBackspaceDelete] = useState(false);
 
   const paperRef = useRef<HTMLDivElement>(null);
   const latestDocRef = useRef<DocumentModel | null>(null);
@@ -76,6 +77,8 @@ export default function App() {
         paperSize={paperSize} setPaperSize={setPaperSize}
         marginPreset={marginPreset} setMarginPreset={setMarginPreset}
         customMargins={customMargins} setCustomMargins={setCustomMargins}
+        disableBackspaceDelete={disableBackspaceDelete}
+        setDisableBackspaceDelete={setDisableBackspaceDelete}
         onExportPNG={handleExportPNG}
         onExportPDF={handleExportPDF}
       />
@@ -89,6 +92,7 @@ export default function App() {
         paperSize={paperSize}
         marginPreset={marginPreset}
         customMargins={customMargins}
+        disableBackspaceDelete={disableBackspaceDelete}
         paperRef={paperRef}
         onDocumentModelChange={(doc) => {
           latestDocRef.current = doc;

@@ -46,11 +46,17 @@ interface TypewriterProps {
   customMargins: CustomMargins;
   paperRef: React.RefObject<HTMLDivElement>;
   onDocumentModelChange?: (doc: DocumentModel) => void;
+  disableBackspaceDelete: boolean;
 }
 
 interface CharFormat {
   model: keyof typeof MODELS;
   ribbon: keyof typeof RIBBONS;
+}
+
+interface CharEmphasis {
+  strikeCount: number;
+  underline: boolean;
 }
 
 interface MechanicalMotionState {
@@ -60,13 +66,14 @@ interface MechanicalMotionState {
   machineOffsetY: number;
 }
 
-export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, lineSpacing, paperSize, marginPreset, customMargins, paperRef, onDocumentModelChange }: TypewriterProps) {
+export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, lineSpacing, paperSize, marginPreset, customMargins, paperRef, onDocumentModelChange, disableBackspaceDelete }: TypewriterProps) {
   const [text, setText] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [cursorPos, setCursorPos] = useState(0);
   const [selectionStart, setSelectionStart] = useState(0);
   const [selectionEnd, setSelectionEnd] = useState(0);
   const [charFormats, setCharFormats] = useState<CharFormat[]>([]);
+  const [charEmphasis, setCharEmphasis] = useState<CharEmphasis[]>([]);
   const [viewingPage, setViewingPage] = useState<number | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [scale, setScale] = useState(1);
@@ -316,9 +323,22 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
   // ---------------------------------------------------------------------------
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const target = e.currentTarget;
+
+    if (disableBackspaceDelete && (e.key === 'Backspace' || e.key === 'Delete')) {
+      e.preventDefault();
+      return;
+    }
+
+    const isPrintable = e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey && !e.nativeEvent.isComposing;
+
+    if (isPrintable) {
+      e.preventDefault();
+      applyManualStrike(e.key, target);
+    }
+
     if (!audioEnabled || audioStatus !== 'ready') return;
 
-    const target = e.currentTarget;
     const nextCursorPos = target.selectionStart + 1;
 
     if (e.key === 'Enter') {
@@ -349,10 +369,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
     }
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newText = e.target.value;
-    const target = e.target;
-
+  const applyTextUpdate = (newText: string, nextSelectionStart: number, nextSelectionEnd: number) => {
     if (!canApplyTextWithinMaxColumns(newText, metrics.maxCharsPerLine)) {
       return;
     }
@@ -376,6 +393,12 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
       return next;
     });
 
+    setCharEmphasis(prev => {
+      const next = [...prev];
+      next.splice(prefixLen, oldReplacedLen, ...Array(newInsertedLen).fill({ strikeCount: 1, underline: false }));
+      return next;
+    });
+
     setRibbonWearState(prev => {
       if (newText.length === 0) {
         return createRibbonWearState(ribbon);
@@ -391,10 +414,72 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
     });
 
     setText(newText);
-    setCursorPos(target.selectionStart);
-    setSelectionStart(target.selectionStart);
-    setSelectionEnd(target.selectionEnd);
+    setCursorPos(nextSelectionStart);
+    setSelectionStart(nextSelectionStart);
+    setSelectionEnd(nextSelectionEnd);
     setViewingPage(null);
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newText = e.target.value;
+    const target = e.target;
+
+    applyTextUpdate(newText, target.selectionStart, target.selectionEnd);
+  };
+
+  const applyManualStrike = (key: string, target: HTMLTextAreaElement) => {
+    const start = target.selectionStart;
+    const end = target.selectionEnd;
+
+    if (start !== end) {
+      const newText = `${text.slice(0, start)}${key}${text.slice(end)}`;
+      applyTextUpdate(newText, start + 1, start + 1);
+      return;
+    }
+
+    if (start < text.length && text[start] !== '\n') {
+      if (key === '_') {
+        setCharEmphasis(prev => {
+          const next = [...prev];
+          const existing = next[start] || { strikeCount: 1, underline: false };
+          next[start] = { ...existing, underline: true };
+          return next;
+        });
+        const nextPos = start + 1;
+        setCursorPos(nextPos);
+        setSelectionStart(nextPos);
+        setSelectionEnd(nextPos);
+        setViewingPage(null);
+        window.requestAnimationFrame(() => target.setSelectionRange(nextPos, nextPos));
+        return;
+      }
+
+      const newText = `${text.slice(0, start)}${key}${text.slice(start + 1)}`;
+
+      if (text[start] === key) {
+        setCharEmphasis(prev => {
+          const next = [...prev];
+          const existing = next[start] || { strikeCount: 1, underline: false };
+          next[start] = { ...existing, strikeCount: existing.strikeCount + 1 };
+          return next;
+        });
+        setRibbonWearState(prev => incrementRibbonWear(prev, 1, ribbon));
+        setText(newText);
+        const nextPos = start + 1;
+        setCursorPos(nextPos);
+        setSelectionStart(nextPos);
+        setSelectionEnd(nextPos);
+        setViewingPage(null);
+        window.requestAnimationFrame(() => target.setSelectionRange(nextPos, nextPos));
+        return;
+      }
+
+      applyTextUpdate(newText, start + 1, start + 1);
+      return;
+    }
+
+    const newText = `${text.slice(0, start)}${key}${text.slice(start)}`;
+    applyTextUpdate(newText, start + 1, start + 1);
   };
 
   const handleSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
@@ -658,9 +743,18 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
                                   const charModel = MODELS[format.model];
                                   const charRibbon = RIBBONS[format.ribbon];
                                   const isSelected = charPos >= selectionStart && charPos < selectionEnd;
+                                  const emphasis = charEmphasis[charPos] || { strikeCount: 1, underline: false };
                                   const i = globalCharIndex++;
                                   const lineSeedIndex = pageIndex * metrics.maxLinesPerPage + lineIndex;
-                                  const charStyle = getCharacterRenderStyle(i, charPos, lineSeedIndex, char, format.ribbon);
+                                  const baseStyle = getCharacterRenderStyle(i, charPos, lineSeedIndex, char, format.ribbon);
+                                  const charStyle = {
+                                    ...baseStyle,
+                                    textDecoration: emphasis.underline ? 'underline' : undefined,
+                                    textDecorationThickness: emphasis.underline ? '1px' : undefined,
+                                    textUnderlineOffset: emphasis.underline ? '2px' : undefined,
+                                    fontWeight: emphasis.strikeCount > 1 ? 700 : undefined,
+                                    opacity: Math.min(1, 0.84 + (emphasis.strikeCount - 1) * 0.08),
+                                  };
 
                                   return (
                                     <span key={charIndex} className="inline-block relative" onClick={(e) => {

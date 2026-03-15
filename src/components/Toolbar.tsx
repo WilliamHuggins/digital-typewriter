@@ -1,5 +1,5 @@
 import React from 'react';
-import { Volume2, VolumeX, Download, Type, Palette, Home, AlignJustify, FileText, Columns } from 'lucide-react';
+import { Volume2, VolumeX, Download, Type, Palette, Home, AlignJustify, FileText, Columns, Eraser } from 'lucide-react';
 import { type AudioStatus } from '../lib/audio';
 import {
   PAPER_SIZES,
@@ -46,6 +46,8 @@ interface ToolbarProps {
   setMarginPreset: (m: MarginPresetKey) => void;
   customMargins: CustomMargins;
   setCustomMargins: (m: CustomMargins) => void;
+  disableBackspaceDelete: boolean;
+  setDisableBackspaceDelete: (value: boolean) => void;
   onExportPNG: () => void;
   onExportPDF: () => void;
 }
@@ -128,6 +130,7 @@ export function Toolbar({
   paperSize, setPaperSize,
   marginPreset, setMarginPreset,
   customMargins, setCustomMargins,
+  disableBackspaceDelete, setDisableBackspaceDelete,
   onExportPNG, onExportPDF
 }: ToolbarProps) {
   const statusTone = audioStatus === 'failed'
@@ -238,6 +241,22 @@ export function Toolbar({
               paperSize={paperSize}
             />
           )}
+        </div>
+
+
+        <div className="flex items-center gap-2">
+          <Eraser size={18} className="text-zinc-500" />
+          <button
+            onClick={() => setDisableBackspaceDelete(!disableBackspaceDelete)}
+            className={`px-2 py-1 text-xs rounded border transition-colors ${
+              disableBackspaceDelete
+                ? 'bg-amber-900/50 border-amber-700 text-amber-200'
+                : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
+            }`}
+            title="When enabled, Backspace/Delete will not remove text"
+          >
+            {disableBackspaceDelete ? 'Backspace Lock: On' : 'Backspace Lock: Off'}
+          </button>
         </div>
       </div>
 
