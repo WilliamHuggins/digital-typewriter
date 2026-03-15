@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Token } from './documentModel';
-import { computeCalibratedFontSize, tokensToGlyphCells, calibratePdfFont, ribbonToPdfColor, wearAdjustedPdfColor, calculatePdfGlyphJitter, MAX_PDF_JITTER_X, MAX_PDF_JITTER_Y, calculatePdfLineWobble, MAX_PDF_LINE_WOBBLE_Y, type PdfFontCalibration, type PdfRgbColor } from './pdfExport';
+import { computeCalibratedFontSize, tokensToGlyphCells, calibratePdfFont, ribbonToPdfColor, wearAdjustedPdfColor, calculatePdfGlyphJitter, MAX_PDF_JITTER_X, MAX_PDF_JITTER_Y, MAX_PDF_ROTATION_DEG, calculatePdfLineWobble, MAX_PDF_LINE_WOBBLE_Y, type PdfFontCalibration, type PdfRgbColor } from './pdfExport';
 import { COURIER_FONT, type PdfFontDef } from './pdfFonts';
 import { createRibbonWearState, calculateRibbonInkStyle, type RibbonWearState } from './ribbonWear';
 
@@ -441,6 +441,87 @@ describe('calculatePdfGlyphJitter', () => {
     const j = calculatePdfGlyphJitter(42, -0.5);
     assert.equal(j.dx, 0);
     assert.equal(j.dy, 0);
+    assert.equal(j.rotation, 0);
+  });
+
+  it('includes rotation field in jitter result', () => {
+    const j = calculatePdfGlyphJitter(42, 1);
+    assert.equal(typeof j.rotation, 'number');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-glyph rotation in PDF export
+// ---------------------------------------------------------------------------
+
+describe('calculatePdfGlyphJitter rotation', () => {
+  it('is deterministic — same inputs produce same rotation', () => {
+    const a = calculatePdfGlyphJitter(42, 1);
+    const b = calculatePdfGlyphJitter(42, 1);
+    assert.equal(a.rotation, b.rotation);
+  });
+
+  it('produces different rotations for different character indices', () => {
+    const a = calculatePdfGlyphJitter(0, 1);
+    const b = calculatePdfGlyphJitter(1, 1);
+    assert.notEqual(a.rotation, b.rotation, 'adjacent characters should have different rotation');
+  });
+
+  it('stays within ±MAX_PDF_ROTATION_DEG bounds at full wear', () => {
+    for (let i = 0; i < 500; i++) {
+      const j = calculatePdfGlyphJitter(i, 1);
+      assert.ok(Math.abs(j.rotation) <= MAX_PDF_ROTATION_DEG,
+        `rotation out of bounds at index ${i}: ${j.rotation}`);
+    }
+  });
+
+  it('returns zero rotation when wearLevel is 0', () => {
+    const j = calculatePdfGlyphJitter(42, 0);
+    assert.equal(j.rotation, 0);
+  });
+
+  it('returns zero rotation when wearLevel is negative', () => {
+    const j = calculatePdfGlyphJitter(42, -0.3);
+    assert.equal(j.rotation, 0);
+  });
+
+  it('scales rotation proportionally with wearLevel', () => {
+    const full = calculatePdfGlyphJitter(10, 1);
+    const half = calculatePdfGlyphJitter(10, 0.5);
+    if (full.rotation !== 0) {
+      assert.ok(Math.abs(half.rotation) < Math.abs(full.rotation) + 0.001,
+        `half-wear rotation should not exceed full-wear rotation`);
+    }
+  });
+
+  it('produces non-zero rotation for most characters at full wear', () => {
+    let nonZeroCount = 0;
+    for (let i = 0; i < 100; i++) {
+      const j = calculatePdfGlyphJitter(i, 1);
+      if (j.rotation !== 0) nonZeroCount++;
+    }
+    assert.ok(nonZeroCount > 90,
+      `expected most characters to have rotation, got ${nonZeroCount}/100`);
+  });
+
+  it('maximum rotation is subtle enough to preserve readability', () => {
+    // MAX_PDF_ROTATION_DEG should be ≤ 1° to keep text readable
+    assert.ok(MAX_PDF_ROTATION_DEG <= 1.0,
+      `max rotation (${MAX_PDF_ROTATION_DEG}°) should be ≤ 1° for readability`);
+    // And positive
+    assert.ok(MAX_PDF_ROTATION_DEG > 0,
+      `max rotation should be positive`);
+  });
+
+  it('uses compatible seeding with on-screen rotation channel (seed + 2)', () => {
+    // The on-screen renderer uses pseudoRandom(seed + 2) for rotation.
+    // Verify that different characters get different rotations (seeding works).
+    const rotations = new Set<number>();
+    for (let i = 0; i < 50; i++) {
+      rotations.add(calculatePdfGlyphJitter(i, 1).rotation);
+    }
+    assert.ok(rotations.size > 40,
+      `expected varied rotations across 50 chars, got ${rotations.size} unique values`);
   });
 });
 

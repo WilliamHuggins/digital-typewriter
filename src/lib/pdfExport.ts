@@ -135,9 +135,21 @@ export const MAX_PDF_JITTER_X = 0.4;
 /** Maximum y-axis offset in px (at wearLevel = 1). */
 export const MAX_PDF_JITTER_Y = 0.35;
 
+/**
+ * Maximum per-glyph rotation in degrees (at wearLevel = 1).
+ *
+ * On screen the max is ±0.8° (`(pseudoRandom(seed+2) - 0.5) * 1.6`).
+ * For PDF we use a slightly smaller magnitude (±0.5°) because PDF is a
+ * permanent artifact and must stay highly readable.  0.5° is enough to
+ * break the perfectly-upright uniformity without impairing legibility.
+ */
+export const MAX_PDF_ROTATION_DEG = 0.5;
+
 export interface PdfGlyphJitter {
   dx: number;
   dy: number;
+  /** Per-glyph rotation in degrees (positive = clockwise). */
+  rotation: number;
 }
 
 /**
@@ -151,7 +163,7 @@ export function calculatePdfGlyphJitter(
   globalCharIndex: number,
   wearLevel: number,
 ): PdfGlyphJitter {
-  if (wearLevel <= 0) return { dx: 0, dy: 0 };
+  if (wearLevel <= 0) return { dx: 0, dy: 0, rotation: 0 };
 
   // Same seed multiplier (1337) and offset pattern used by the on-screen
   // renderer in Typewriter.tsx `getCharacterRenderStyle`.
@@ -159,10 +171,15 @@ export function calculatePdfGlyphJitter(
   const rawX = (pseudoRandom(seed) - 0.5) * 2;     // −1 … +1
   const rawY = (pseudoRandom(seed + 1) - 0.5) * 2;  // −1 … +1
 
+  // seed + 2 matches the on-screen rotation channel in Typewriter.tsx:
+  //   rotJitter = (pseudoRandom(seed + 2) - 0.5) * 1.6 * wearLevel
+  const rawRot = (pseudoRandom(seed + 2) - 0.5) * 2; // −1 … +1
+
   const dx = clamp(rawX * MAX_PDF_JITTER_X * wearLevel, -MAX_PDF_JITTER_X, MAX_PDF_JITTER_X);
   const dy = clamp(rawY * MAX_PDF_JITTER_Y * wearLevel, -MAX_PDF_JITTER_Y, MAX_PDF_JITTER_Y);
+  const rotation = clamp(rawRot * MAX_PDF_ROTATION_DEG * wearLevel, -MAX_PDF_ROTATION_DEG, MAX_PDF_ROTATION_DEG);
 
-  return { dx, dy };
+  return { dx, dy, rotation };
 }
 
 // ---------------------------------------------------------------------------
@@ -291,8 +308,10 @@ function drawLine(
     glyphs.forEach(({ char, column }, glyphIndex) => {
       const jitter = jitterContext
         ? calculatePdfGlyphJitter(jitterContext.globalCharOffset + glyphIndex, jitterContext.wearLevel)
-        : { dx: 0, dy: 0 };
-      pdf.text(char, x + column * charCellWidth + jitter.dx, y + jitter.dy, { baseline: 'top' });
+        : { dx: 0, dy: 0, rotation: 0 };
+      const textOpts: any = { baseline: 'top' };
+      if (jitter.rotation !== 0) textOpts.angle = jitter.rotation;
+      pdf.text(char, x + column * charCellWidth + jitter.dx, y + jitter.dy, textOpts);
     });
     return;
   }
@@ -319,8 +338,10 @@ function drawLine(
 
     const jitter = jitterContext
       ? calculatePdfGlyphJitter(jitterContext.globalCharOffset + glyphIndex, jitterContext.wearLevel)
-      : { dx: 0, dy: 0 };
-    pdf.text(char, x + column * charCellWidth + jitter.dx, y + jitter.dy, { baseline: 'top' });
+      : { dx: 0, dy: 0, rotation: 0 };
+    const textOpts: any = { baseline: 'top' };
+    if (jitter.rotation !== 0) textOpts.angle = jitter.rotation;
+    pdf.text(char, x + column * charCellWidth + jitter.dx, y + jitter.dy, textOpts);
   });
 }
 
