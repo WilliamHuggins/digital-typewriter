@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "test": "tsx --test src/lib/carriageModel.test.ts src/lib/ribbonWear.test.ts"
+    "test": "tsx --test src/lib/carriageModel.test.ts src/lib/ribbonWear.test.ts src/lib/documentModel.test.ts"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

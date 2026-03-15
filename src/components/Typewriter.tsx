@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { cn, pseudoRandom } from '../lib/utils';
 import { MODELS, RIBBONS } from './Toolbar';
 import { type AudioStatus, audioEngine } from '../lib/audio';
@@ -13,6 +13,19 @@ import {
   incrementRibbonWear,
   buildLineImpressionLedger,
 } from '../lib/ribbonWear';
+import {
+  DEFAULT_PAGE_SPEC,
+  layoutDocument,
+  locateCursor,
+  cursorColumn,
+  computeScrollPosition,
+  computeMetrics,
+  TYPING_OFFSET_Y,
+  PAGE_GAP,
+  type PageSpec,
+  type DocumentModel,
+  type Token,
+} from '../lib/documentModel';
 
 interface TypewriterProps {
   model: keyof typeof MODELS;
@@ -23,18 +36,6 @@ interface TypewriterProps {
   lineSpacing: number;
   paperRef: React.RefObject<HTMLDivElement>;
 }
-
-const PAGE_WIDTH = 816;
-const PAGE_HEIGHT = 1056;
-const MARGIN_X = 104;
-const MARGIN_TOP = 122;
-const MARGIN_BOTTOM = 104;
-const CHAR_WIDTH = 9.6; // Approximate width of 15px monospace char
-const BASE_LINE_HEIGHT = 24; // 15px * 1.6
-const CONTENT_WIDTH = PAGE_WIDTH - MARGIN_X * 2;
-const CONTENT_HEIGHT = PAGE_HEIGHT - MARGIN_TOP - MARGIN_BOTTOM;
-const MAX_CHARS_PER_LINE = Math.floor(CONTENT_WIDTH / CHAR_WIDTH);
-const TYPING_OFFSET_Y = 250; // Distance from top of container to the typing line
 
 interface CharFormat {
   model: keyof typeof MODELS;
@@ -74,9 +75,26 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
   const activeModel = MODELS[model];
   const activeRibbon = RIBBONS[ribbon];
   const wearLevel = activeModel.wear;
-  
-  const currentLineHeight = BASE_LINE_HEIGHT * lineSpacing;
-  const MAX_LINES_PER_PAGE = Math.floor(CONTENT_HEIGHT / currentLineHeight);
+
+  // ---------------------------------------------------------------------------
+  // Document model – the single source of truth for page/line layout
+  // ---------------------------------------------------------------------------
+
+  const pageSpec: PageSpec = useMemo(() => ({
+    ...DEFAULT_PAGE_SPEC,
+    lineSpacing,
+  }), [lineSpacing]);
+
+  const doc: DocumentModel = useMemo(
+    () => layoutDocument(text, pageSpec),
+    [text, pageSpec],
+  );
+
+  const { metrics } = doc;
+
+  // ---------------------------------------------------------------------------
+  // Effects (unchanged behaviour, now uses doc model constants)
+  // ---------------------------------------------------------------------------
 
   const prevModelRef = useRef(model);
   const prevRibbonRef = useRef(ribbon);
@@ -88,8 +106,8 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
           const next = [...prev];
           for (let i = selectionStart; i < selectionEnd; i++) {
             if (next[i]) {
-              next[i] = { 
-                ...next[i], 
+              next[i] = {
+                ...next[i],
                 model: model !== prevModelRef.current ? model : next[i].model,
                 ribbon: ribbon !== prevRibbonRef.current ? ribbon : next[i].ribbon
               };
@@ -102,7 +120,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
       }
       prevModelRef.current = model;
       prevRibbonRef.current = ribbon;
-      
+
       if (textareaRef.current) {
         textareaRef.current.focus();
         textareaRef.current.setSelectionRange(selectionStart, selectionEnd);
@@ -114,7 +132,6 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
     setRibbonWearState(createRibbonWearState(ribbon));
   }, [ribbon]);
 
-  // Load from session storage on mount
   useEffect(() => {
     // Removed sessionStorage persistence so refresh clears the pages
   }, []);
@@ -124,10 +141,9 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width } = entry.contentRect;
-        // Add some padding (e.g., 32px) so it doesn't touch the edges
         const availableWidth = width - 32;
-        if (availableWidth < PAGE_WIDTH) {
-          setScale(availableWidth / PAGE_WIDTH);
+        if (availableWidth < pageSpec.paper.width) {
+          setScale(availableWidth / pageSpec.paper.width);
         } else {
           setScale(1);
         }
@@ -135,7 +151,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
     });
     observer.observe(containerRef.current);
     return () => observer.disconnect();
-  }, []);
+  }, [pageSpec.paper.width]);
 
   useEffect(() => {
     audioEngine.setVolume(volume);
@@ -165,6 +181,10 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
     }
     returnMotionTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
   }, []);
+
+  // ---------------------------------------------------------------------------
+  // Mechanical motion (unchanged)
+  // ---------------------------------------------------------------------------
 
   const triggerTypingMotion = () => {
     if (prefersReducedMotion) return;
@@ -232,12 +252,16 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
     );
   };
 
+  // ---------------------------------------------------------------------------
+  // Bell (uses metrics from the document model)
+  // ---------------------------------------------------------------------------
+
   const maybePlayBell = (nextCursorPos: number) => {
     const bellState = evaluateBellState(
       text,
       nextCursorPos,
       bellArmedRef.current,
-      audioEngine.getBellColumns(MAX_CHARS_PER_LINE, model)
+      audioEngine.getBellColumns(metrics.maxCharsPerLine, model)
     );
 
     if (bellState.shouldRing) {
@@ -246,6 +270,10 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
 
     bellArmedRef.current = bellState.bellArmed;
   };
+
+  // ---------------------------------------------------------------------------
+  // Input handlers (textarea still captures input; layout comes from doc model)
+  // ---------------------------------------------------------------------------
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (!audioEnabled || audioStatus !== 'ready') return;
@@ -271,7 +299,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
         shouldRearmBellAfterCursorOrEdit(
           text,
           target.selectionStart,
-          audioEngine.getBellColumns(MAX_CHARS_PER_LINE, model)
+          audioEngine.getBellColumns(metrics.maxCharsPerLine, model)
         )
       ) {
         bellArmedRef.current = true;
@@ -282,27 +310,24 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newText = e.target.value;
     const target = e.target;
-    
-    // Enforce max characters per line
-    if (!canApplyTextWithinMaxColumns(newText, MAX_CHARS_PER_LINE)) {
-      return; // Reject the change
+
+    if (!canApplyTextWithinMaxColumns(newText, metrics.maxCharsPerLine)) {
+      return;
     }
-    
-    // Find common prefix
+
     let prefixLen = 0;
     while (prefixLen < text.length && prefixLen < newText.length && text[prefixLen] === newText[prefixLen]) {
       prefixLen++;
     }
-    
-    // Find common suffix
+
     let suffixLen = 0;
     while (suffixLen < text.length - prefixLen && suffixLen < newText.length - prefixLen && text[text.length - 1 - suffixLen] === newText[newText.length - 1 - suffixLen]) {
       suffixLen++;
     }
-    
+
     const oldReplacedLen = text.length - prefixLen - suffixLen;
     const newInsertedLen = newText.length - prefixLen - suffixLen;
-    
+
     setCharFormats(prev => {
       const next = [...prev];
       next.splice(prefixLen, oldReplacedLen, ...Array(newInsertedLen).fill({ model, ribbon }));
@@ -317,17 +342,17 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
       const lineLedger = buildLineImpressionLedger({
         text: newText,
         insertedRange: { start: prefixLen, length: newInsertedLen },
-        maxColumns: MAX_CHARS_PER_LINE,
+        maxColumns: metrics.maxCharsPerLine,
       });
 
       return incrementRibbonWear(prev, newInsertedLen, ribbon, lineLedger);
     });
-    
+
     setText(newText);
     setCursorPos(target.selectionStart);
     setSelectionStart(target.selectionStart);
     setSelectionEnd(target.selectionEnd);
-    setViewingPage(null); // Snap back to current typing position
+    setViewingPage(null);
   };
 
   const handleSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
@@ -344,83 +369,13 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
     }
   };
 
-  // Layout engine
-  const pages: { lines: { tokens: any[], startIndex: number, endIndex: number }[] }[] = [];
-  let currentLines: { tokens: any[], startIndex: number, endIndex: number }[] = [];
-  let currentLine: any[] = [];
-  let currentLineLength = 0;
-  let currentLineStartIndex = 0;
+  // ---------------------------------------------------------------------------
+  // Cursor & scroll positioning – driven by document model
+  // ---------------------------------------------------------------------------
 
-  const finishLine = (endIndex: number) => {
-    currentLines.push({ tokens: currentLine, startIndex: currentLineStartIndex, endIndex });
-    if (currentLines.length >= MAX_LINES_PER_PAGE) {
-      pages.push({ lines: currentLines });
-      currentLines = [];
-    }
-    currentLine = [];
-    currentLineStartIndex = endIndex;
-    currentLineLength = 0;
-  };
-
-  let i = 0;
-  while (i < text.length) {
-    if (text[i] === '\n') {
-      currentLine.push({ type: 'newline', index: i });
-      finishLine(i + 1);
-      i++;
-    } else if (text[i] === ' ') {
-      if (currentLineLength + 1 <= MAX_CHARS_PER_LINE) {
-        currentLine.push({ type: 'space', index: i });
-        currentLineLength += 1;
-      } else {
-        currentLine.push({ type: 'space', index: i });
-        finishLine(i + 1);
-      }
-      i++;
-    } else {
-      let word = '';
-      let startIndex = i;
-      while (i < text.length && text[i] !== ' ' && text[i] !== '\n') {
-        word += text[i];
-        i++;
-      }
-      const wordLen = word.length;
-      
-      if (currentLineLength === 0) {
-        currentLine.push({ type: 'word', text: word, index: startIndex });
-        currentLineLength += wordLen;
-      } else if (currentLineLength + wordLen <= MAX_CHARS_PER_LINE) {
-        currentLine.push({ type: 'word', text: word, index: startIndex });
-        currentLineLength += wordLen;
-      } else {
-        finishLine(startIndex);
-        currentLine.push({ type: 'word', text: word, index: startIndex });
-        currentLineLength += wordLen;
-      }
-    }
-  }
-  
-  currentLines.push({ tokens: currentLine, startIndex: currentLineStartIndex, endIndex: text.length });
-  if (currentLines.length > 0 || pages.length === 0) {
-    pages.push({ lines: currentLines });
-  }
-
-  let cursorPageIdx = 0;
-  let cursorLineIdx = 0;
-
-  for (let pIdx = 0; pIdx < pages.length; pIdx++) {
-    for (let lIdx = 0; lIdx < pages[pIdx].lines.length; lIdx++) {
-      const line = pages[pIdx].lines[lIdx];
-      
-      if (cursorPos >= line.startIndex && cursorPos < line.endIndex) {
-        cursorPageIdx = pIdx;
-        cursorLineIdx = lIdx;
-      } else if (cursorPos === line.endIndex && cursorPos === text.length) {
-        cursorPageIdx = pIdx;
-        cursorLineIdx = lIdx;
-      }
-    }
-  }
+  const cursor = locateCursor(doc, cursorPos);
+  const cursorPageIdx = cursor.pageIndex;
+  const cursorLineIdx = cursor.lineIndex;
 
   let globalCharIndex = 0;
 
@@ -454,35 +409,28 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
     };
   };
 
-  // Calculate vertical offset to keep the typing line fixed
+  // Vertical offset to keep the typing line fixed
   const activePageIdx = viewingPage !== null ? viewingPage : cursorPageIdx;
   const activeLineIdx = viewingPage !== null ? 0 : cursorLineIdx;
-  
-  // 32px is the gap between pages
-  const pageOffsetY = activePageIdx * (PAGE_HEIGHT + 32);
-  const lineOffsetY = MARGIN_TOP + activeLineIdx * currentLineHeight;
-  const totalOffsetY = pageOffsetY + lineOffsetY;
-  
-  const transformY = TYPING_OFFSET_Y - totalOffsetY * scale;
-  const paperTransform = `translate3d(${motionState.carriageOffsetX}px, ${transformY + motionState.paperOffsetY}px, 0) scale(${scale})`;
+
+  const scroll = computeScrollPosition(doc, activePageIdx, activeLineIdx, scale);
+
+  const paperTransform = `translate3d(${motionState.carriageOffsetX}px, ${scroll.transformY + motionState.paperOffsetY}px, 0) scale(${scale})`;
   const guideTransform = `translate3d(${motionState.machineOffsetX}px, ${motionState.machineOffsetY}px, 0) scale(${scale})`;
 
-  const activeLine = pages[cursorPageIdx]?.lines[cursorLineIdx];
-  const lineContentEnd = activeLine && text[activeLine.endIndex - 1] === '\n'
-    ? activeLine.endIndex - 1
-    : activeLine?.endIndex ?? 0;
-  // Cursor column is derived from the wrapped visual line indices.
-  const cursorColumnOnLine = activeLine
-    ? Math.max(0, Math.min(cursorPos - activeLine.startIndex, lineContentEnd - activeLine.startIndex))
-    : 0;
-  const carriageCueX = MARGIN_X + cursorColumnOnLine * CHAR_WIDTH;
-  const rightMarginX = MARGIN_X + MAX_CHARS_PER_LINE * CHAR_WIDTH;
-  const marginApproach = Math.min(1, Math.max(0, (cursorColumnOnLine / MAX_CHARS_PER_LINE - 0.72) / 0.28));
+  const cursorColumnOnLine = cursorColumn(doc, cursor, cursorPos);
+  const carriageCueX = pageSpec.marginLeft + cursorColumnOnLine * pageSpec.charWidth;
+  const rightMarginX = pageSpec.marginLeft + metrics.maxCharsPerLine * pageSpec.charWidth;
+  const marginApproach = Math.min(1, Math.max(0, (cursorColumnOnLine / metrics.maxCharsPerLine - 0.72) / 0.28));
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
 
   return (
     <div className="flex-1 flex overflow-hidden bg-neutral-900 relative">
       {/* Sidebar */}
-      <div 
+      <div
         className={cn(
           "w-64 bg-neutral-950 border-r border-neutral-800 flex flex-col transition-all duration-300 z-20",
           isSidebarOpen ? "translate-x-0" : "-translate-x-full absolute h-full"
@@ -490,7 +438,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
       >
         <div className="p-4 border-b border-neutral-800 flex justify-between items-center text-neutral-400">
           <span className="text-sm font-medium uppercase tracking-wider">Pages</span>
-          <button 
+          <button
             onClick={() => setIsSidebarOpen(false)}
             className="hover:text-white transition-colors"
           >
@@ -498,7 +446,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
           </button>
         </div>
         <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-          {pages.map((_, idx) => (
+          {doc.pages.map((_, idx) => (
             <button
               key={idx}
               onClick={() => setViewingPage(idx)}
@@ -524,12 +472,12 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
       )}
 
       {/* Main Typing Area */}
-      <div 
+      <div
         ref={containerRef}
         className="flex-1 relative overflow-hidden flex justify-center"
         onClick={handleClick}
       >
-        {/* Hidden textarea */}
+        {/* Hidden textarea – still the input capture mechanism */}
         <textarea
           ref={textareaRef}
           value={text}
@@ -542,9 +490,9 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
           autoFocus
           aria-label="Typewriter input"
         />
-        
-        {/* Paper Container - Moves up as you type */}
-        <div 
+
+        {/* Paper Container – pages rendered from document model */}
+        <div
           className={cn(
             'absolute top-0 origin-top will-change-transform',
             prefersReducedMotion ? 'transition-transform duration-75 linear' : 'transition-transform duration-150 ease-out'
@@ -552,8 +500,8 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
           style={{ transform: paperTransform }}
         >
           <div ref={paperRef} className="flex flex-col gap-8 pointer-events-none">
-            {pages.map((page, pageIndex) => (
-              <div 
+            {doc.pages.map((page, pageIndex) => (
+              <div
                 key={pageIndex}
                 className={cn(
                   "relative paper-texture paper-shadow flex-shrink-0",
@@ -563,11 +511,11 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
                   activeRibbon === 'ink-stencil' && 'ink-stencil',
                   "ink-bleed paper-sheet text-[15px] tracking-[0.01em] whitespace-pre pointer-events-auto"
                 )}
-                style={{ 
-                  width: `${PAGE_WIDTH}px`, 
-                  height: `${PAGE_HEIGHT}px`,
-                  padding: `${MARGIN_TOP}px ${MARGIN_X}px ${MARGIN_BOTTOM}px`,
-                  lineHeight: `${currentLineHeight}px`
+                style={{
+                  width: `${pageSpec.paper.width}px`,
+                  height: `${pageSpec.paper.height}px`,
+                  padding: `${pageSpec.marginTop}px ${pageSpec.marginRight}px ${pageSpec.marginBottom}px ${pageSpec.marginLeft}px`,
+                  lineHeight: `${metrics.lineHeight}px`
                 }}
               >
                 <div className="paper-impression" />
@@ -576,11 +524,11 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
                     const isCursorOnThisLine = viewingPage === null && cursorPageIdx === pageIndex && cursorLineIdx === lineIndex;
 
                     return (
-                      <div 
-                        key={lineIndex} 
+                      <div
+                        key={lineIndex}
                         className="flex relative cursor-text"
                         style={{
-                          height: `${currentLineHeight}px`,
+                          height: `${metrics.lineHeight}px`,
                           transform: `translateY(${(pseudoRandom((pageIndex + 1) * 7000 + lineIndex) - 0.5) * wearLevel * 0.75}px)`
                         }}
                         onClick={(e) => {
@@ -599,7 +547,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
                         {isCursorOnThisLine && line.tokens.length === 0 && selectionStart === selectionEnd && (
                           <span className="typewriter-caret absolute left-0 mt-[1px]" />
                         )}
-                        {line.tokens.map((token, tokenIndex) => {
+                        {line.tokens.map((token: Token, tokenIndex: number) => {
                           const isLastToken = tokenIndex === line.tokens.length - 1;
 
                           if (token.type === 'newline') {
@@ -620,7 +568,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
                             const isSelected = token.index >= selectionStart && token.index < selectionEnd;
 
                             return (
-                              <span 
+                              <span
                                 key={tokenIndex}
                                 className={cn(
                                   "inline-block relative whitespace-pre",
@@ -659,7 +607,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
                                   const charRibbon = RIBBONS[format.ribbon];
                                   const isSelected = charPos >= selectionStart && charPos < selectionEnd;
                                   const i = globalCharIndex++;
-                                  const lineSeedIndex = pageIndex * MAX_LINES_PER_PAGE + lineIndex;
+                                  const lineSeedIndex = pageIndex * metrics.maxLinesPerPage + lineIndex;
                                   const charStyle = getCharacterRenderStyle(i, charPos, lineSeedIndex, char, format.ribbon);
 
                                   return (
@@ -709,22 +657,22 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
             ))}
           </div>
         </div>
-        
-        {/* Typewriter Guide overlay (optional visual flair for the "typing line") */}
-        <div 
-          className="absolute top-[250px] left-0 w-full pointer-events-none flex justify-center"
-          style={{ height: `${currentLineHeight}px` }}
+
+        {/* Typewriter Guide overlay */}
+        <div
+          className="absolute left-0 w-full pointer-events-none flex justify-center"
+          style={{ top: `${TYPING_OFFSET_Y}px`, height: `${metrics.lineHeight}px` }}
         >
           <div
-            className="relative w-[816px]"
-            style={{ transform: guideTransform, transformOrigin: 'center' }}
+            className="relative"
+            style={{ width: `${pageSpec.paper.width}px`, transform: guideTransform, transformOrigin: 'center' }}
           >
             <div className="absolute inset-x-0 top-0 border-b border-black/5" />
             <div
               className={cn('carriage-bracket-cue', prefersReducedMotion && 'carriage-cue-reduced-motion')}
               style={{
                 left: `${carriageCueX - 9}px`,
-                top: `${Math.max(2, currentLineHeight * 0.14)}px`,
+                top: `${Math.max(2, metrics.lineHeight * 0.14)}px`,
               }}
             >
               <span className="carriage-bracket-pin" />
@@ -733,7 +681,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
               className="carriage-margin-cue"
               style={{
                 left: `${rightMarginX + 7}px`,
-                top: `${Math.max(3, currentLineHeight * 0.06)}px`,
+                top: `${Math.max(3, metrics.lineHeight * 0.06)}px`,
                 opacity: 0.16 + marginApproach * 0.46,
               }}
             />
