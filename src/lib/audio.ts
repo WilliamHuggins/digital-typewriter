@@ -8,6 +8,8 @@ export class TypewriterAudio {
   status: AudioStatus = 'off';
   private initPromise: Promise<void> | null = null;
   private statusListeners = new Set<(status: AudioStatus) => void>();
+  private recentBufferIndices: Record<string, number[]> = {};
+  private activeVoices: { source: AudioBufferSourceNode; gain: GainNode; startedAt: number; key: string }[] = [];
 
   buffers: {
     models: Record<string, AudioBuffer[]>;
@@ -127,44 +129,158 @@ export class TypewriterAudio {
     this.volume = v;
   }
 
-  private playBuffer(buffers: AudioBuffer[], baseVolume: number = 1, varyPitch: boolean = true) {
+  private clamp(value: number, min: number, max: number) {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  private pickBufferIndex(buffers: AudioBuffer[], key: string) {
+    if (buffers.length <= 1) return 0;
+
+    const historyLength = Math.min(2, buffers.length - 1);
+    const recent = this.recentBufferIndices[key] ?? [];
+    const disallowed = new Set(recent.slice(-historyLength));
+
+    const candidates = buffers
+      .map((_, index) => index)
+      .filter((index) => !disallowed.has(index));
+
+    const selectedIndex = candidates[Math.floor(Math.random() * candidates.length)];
+    this.recentBufferIndices[key] = [...recent, selectedIndex].slice(-4);
+
+    return selectedIndex;
+  }
+
+  private registerVoice(source: AudioBufferSourceNode, gain: GainNode, voiceGroup: string) {
+    const voiceCaps: Record<string, number> = {
+      key: 9,
+      space: 6,
+      return: 2,
+      bell: 2
+    };
+
+    const cap = voiceCaps[voiceGroup] ?? 6;
+    const inGroup = this.activeVoices.filter((voice) => voice.key === voiceGroup);
+
+    if (inGroup.length >= cap) {
+      const oldest = inGroup.sort((a, b) => a.startedAt - b.startedAt)[0];
+      oldest.gain.gain.cancelScheduledValues(this.ctx!.currentTime);
+      oldest.gain.gain.setValueAtTime(oldest.gain.gain.value, this.ctx!.currentTime);
+      oldest.gain.gain.linearRampToValueAtTime(0, this.ctx!.currentTime + 0.015);
+      oldest.source.stop(this.ctx!.currentTime + 0.02);
+    }
+
+    const trackedVoice = { source, gain, startedAt: this.ctx!.currentTime, key: voiceGroup };
+    this.activeVoices.push(trackedVoice);
+    source.onended = () => {
+      this.activeVoices = this.activeVoices.filter((voice) => voice !== trackedVoice);
+    };
+  }
+
+  private playBuffer(
+    buffers: AudioBuffer[],
+    options: {
+      category: 'key' | 'space' | 'return' | 'bell';
+      sampleKey: string;
+      baseVolume: number;
+      gainJitter: number;
+      playbackJitter: number;
+      mechanicalLayer?: { gain: number; delay: number; playbackRate: number };
+      varyPitch?: boolean;
+    }
+  ) {
     if (!this.enabled || !this.ctx || buffers.length === 0) return;
 
-    const buffer = buffers[Math.floor(Math.random() * buffers.length)];
+    const index = this.pickBufferIndex(buffers, options.sampleKey);
+    const buffer = buffers[index];
     const source = this.ctx.createBufferSource();
     source.buffer = buffer;
 
     const gainNode = this.ctx.createGain();
-    
-    // Vary gain slightly
-    const jitter = (Math.random() - 0.5) * 0.2;
-    gainNode.gain.value = this.volume * baseVolume + jitter;
+    const jitter = (Math.random() - 0.5) * options.gainJitter;
+    gainNode.gain.value = this.clamp(this.volume * (options.baseVolume + jitter), 0, 1);
 
-    // Vary playback speed slightly
-    if (varyPitch) {
-      source.playbackRate.value = 1 + (Math.random() - 0.5) * 0.1;
+    const shouldVaryPitch = options.varyPitch ?? true;
+    if (shouldVaryPitch && options.playbackJitter > 0) {
+      source.playbackRate.value = this.clamp(1 + (Math.random() - 0.5) * options.playbackJitter, 0.92, 1.08);
     }
 
     source.connect(gainNode);
     gainNode.connect(this.ctx.destination);
+
+    this.registerVoice(source, gainNode, options.category);
     source.start(0);
+
+    if (options.mechanicalLayer && buffers.length > 1) {
+      const layerSource = this.ctx.createBufferSource();
+      const layerIndex = this.pickBufferIndex(buffers, `${options.sampleKey}-layer`);
+      layerSource.buffer = buffers[layerIndex];
+
+      const layerGain = this.ctx.createGain();
+      const layerJitter = (Math.random() - 0.5) * 0.04;
+      layerGain.gain.value = this.clamp(
+        this.volume * (options.baseVolume * options.mechanicalLayer.gain + layerJitter),
+        0,
+        0.5
+      );
+
+      layerSource.playbackRate.value = this.clamp(
+        options.mechanicalLayer.playbackRate + (Math.random() - 0.5) * 0.02,
+        0.9,
+        1.05
+      );
+
+      layerSource.connect(layerGain);
+      layerGain.connect(this.ctx.destination);
+
+      this.registerVoice(layerSource, layerGain, options.category);
+      layerSource.start(this.ctx.currentTime + options.mechanicalLayer.delay + Math.random() * 0.004);
+    }
   }
 
   playKeypress(isSpace: boolean = false, model: string = 'remington') {
     if (isSpace) {
-      this.playBuffer(this.buffers.space, 0.8);
+      this.playBuffer(this.buffers.space, {
+        category: 'space',
+        sampleKey: 'space',
+        baseVolume: 0.72,
+        gainJitter: 0.09,
+        playbackJitter: 0.025,
+        mechanicalLayer: { gain: 0.45, delay: 0.009, playbackRate: 0.97 }
+      });
     } else {
       const modelBuffers = this.buffers.models[model] || this.buffers.models.remington;
-      this.playBuffer(modelBuffers, 1.0);
+      this.playBuffer(modelBuffers, {
+        category: 'key',
+        sampleKey: `model-${model}`,
+        baseVolume: 0.92,
+        gainJitter: 0.12,
+        playbackJitter: 0.035,
+        mechanicalLayer: { gain: 0.36, delay: 0.006, playbackRate: 0.985 }
+      });
     }
   }
 
   playBell() {
-    this.playBuffer(this.buffers.bell, 0.8, false);
+    this.playBuffer(this.buffers.bell, {
+      category: 'bell',
+      sampleKey: 'bell',
+      baseVolume: 0.68,
+      gainJitter: 0.05,
+      playbackJitter: 0,
+      varyPitch: false
+    });
   }
 
   playReturn() {
-    this.playBuffer(this.buffers.return, 1.0, false);
+    this.playBuffer(this.buffers.return, {
+      category: 'return',
+      sampleKey: 'return',
+      baseVolume: 0.98,
+      gainJitter: 0.08,
+      playbackJitter: 0.015,
+      varyPitch: true,
+      mechanicalLayer: { gain: 0.25, delay: 0.014, playbackRate: 0.95 }
+    });
   }
 }
 
