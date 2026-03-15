@@ -14,21 +14,68 @@
   .text-ink-blue { color: #1e40af; }
 
   .paper-shadow {
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    box-shadow:
+      0 38px 46px -28px rgba(0, 0, 0, 0.65),
+      0 12px 16px -12px rgba(0, 0, 0, 0.45),
+      0 1px 0 rgba(255, 255, 255, 0.38) inset;
   }
 
   .paper-texture {
-    background-color: #f4f1ea;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.08'/%3E%3C/svg%3E");
+    background-color: #f3efe5;
+    background-image:
+      radial-gradient(120% 100% at 50% 0%, rgba(255, 255, 255, 0.5) 0%, rgba(243, 239, 229, 0.15) 68%, rgba(223, 214, 197, 0.2) 100%),
+      radial-gradient(circle at 20% 0%, rgba(136, 123, 97, 0.04), transparent 45%),
+      url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.12'/%3E%3C/svg%3E");
+    border: 1px solid #e1d8c6;
+  }
+
+  .paper-sheet {
+    position: relative;
+  }
+
+  .paper-sheet::before {
+    content: '';
+    position: absolute;
+    inset: 24px 28px;
+    border: 1px solid rgba(132, 118, 94, 0.08);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .paper-impression {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      linear-gradient(to bottom, rgba(80, 66, 44, 0.08), transparent 140px),
+      linear-gradient(to top, rgba(80, 66, 44, 0.04), transparent 160px);
+    opacity: 0.45;
   }
   
   .ink-bleed {
-    text-shadow: 0.15px 0.15px 0.2px currentColor, -0.1px 0.05px 0.15px currentColor;
-    filter: blur(0.15px) contrast(1.05);
+    text-shadow: 0.12px 0.1px 0.2px currentColor, -0.08px 0.05px 0.15px currentColor;
+    filter: blur(0.12px) contrast(1.04);
   }
   
   .ink-stencil {
     color: transparent;
     text-shadow: 0 0 1px rgba(0,0,0,0.4);
+  }
+
+  .typewriter-caret {
+    width: 0.58em;
+    height: 1.18em;
+    background: currentColor;
+    opacity: 0.42;
+    border-left: 1px solid rgba(30, 20, 8, 0.38);
+    border-right: 1px solid rgba(255, 255, 255, 0.15);
+    animation: typewriter-caret-blink 1s steps(2, jump-none) infinite;
+    box-shadow: inset 0 0 0 1px rgba(42, 26, 12, 0.08);
+  }
+
+  @keyframes typewriter-caret-blink {
+    0%, 45% { opacity: 0.38; }
+    55%, 100% { opacity: 0.08; }
   }
 }

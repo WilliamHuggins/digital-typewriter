@@ -20,10 +20,14 @@ interface TypewriterProps {
 
 const PAGE_WIDTH = 816;
 const PAGE_HEIGHT = 1056;
-const MARGIN = 96;
+const MARGIN_X = 104;
+const MARGIN_TOP = 122;
+const MARGIN_BOTTOM = 104;
 const CHAR_WIDTH = 9.6; // Approximate width of 15px monospace char
 const BASE_LINE_HEIGHT = 24; // 15px * 1.6
-const MAX_CHARS_PER_LINE = Math.floor((PAGE_WIDTH - MARGIN * 2) / CHAR_WIDTH);
+const CONTENT_WIDTH = PAGE_WIDTH - MARGIN_X * 2;
+const CONTENT_HEIGHT = PAGE_HEIGHT - MARGIN_TOP - MARGIN_BOTTOM;
+const MAX_CHARS_PER_LINE = Math.floor(CONTENT_WIDTH / CHAR_WIDTH);
 const TYPING_OFFSET_Y = 250; // Distance from top of container to the typing line
 
 interface CharFormat {
@@ -49,7 +53,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
   const wearLevel = activeModel.wear;
   
   const currentLineHeight = BASE_LINE_HEIGHT * lineSpacing;
-  const MAX_LINES_PER_PAGE = Math.floor((PAGE_HEIGHT - MARGIN * 2) / currentLineHeight);
+  const MAX_LINES_PER_PAGE = Math.floor(CONTENT_HEIGHT / currentLineHeight);
 
   const prevModelRef = useRef(model);
   const prevRibbonRef = useRef(ribbon);
@@ -289,13 +293,30 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
 
   let globalCharIndex = 0;
 
+  const getCharacterRenderStyle = (charSeedIndex: number) => {
+    const seed = charSeedIndex * 1337;
+    const xJitter = (pseudoRandom(seed) - 0.5) * 1.1 * wearLevel;
+    const yJitter = (pseudoRandom(seed + 1) - 0.5) * 1.25 * wearLevel;
+    const rotJitter = (pseudoRandom(seed + 2) - 0.5) * 1.6 * wearLevel;
+    const inkFade = pseudoRandom(seed + 3) * wearLevel * 0.32;
+    const pressVariance = (pseudoRandom(seed + 4) - 0.5) * wearLevel * 0.12;
+    const spacingNudge = (pseudoRandom(seed + 5) - 0.5) * wearLevel * 0.04;
+
+    return {
+      transform: `translate(${xJitter}px, ${yJitter}px) rotate(${rotJitter}deg)`,
+      opacity: 0.9 - inkFade,
+      filter: `contrast(${1 + pressVariance})`,
+      marginRight: `${spacingNudge}em`,
+    };
+  };
+
   // Calculate vertical offset to keep the typing line fixed
   const activePageIdx = viewingPage !== null ? viewingPage : cursorPageIdx;
   const activeLineIdx = viewingPage !== null ? 0 : cursorLineIdx;
   
   // 32px is the gap between pages
   const pageOffsetY = activePageIdx * (PAGE_HEIGHT + 32);
-  const lineOffsetY = MARGIN + activeLineIdx * currentLineHeight;
+  const lineOffsetY = MARGIN_TOP + activeLineIdx * currentLineHeight;
   const totalOffsetY = pageOffsetY + lineOffsetY;
   
   const transformY = TYPING_OFFSET_Y - totalOffsetY * scale;
@@ -324,7 +345,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
               key={idx}
               onClick={() => setViewingPage(idx)}
               className={cn(
-                "aspect-[8.5/11] w-full bg-[#f4f1ea] rounded-sm shadow-md flex items-center justify-center text-neutral-400 transition-all",
+                "aspect-[8.5/11] w-full bg-[#f4f1ea] rounded-[2px] shadow-md flex items-center justify-center text-neutral-400 transition-all border border-[#d9d2c2]",
                 activePageIdx === idx ? "ring-2 ring-blue-500 opacity-100" : "opacity-50 hover:opacity-80"
               )}
             >
@@ -379,16 +400,17 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
                   activeModel.font,
                   activeRibbon !== 'ink-stencil' && activeRibbon,
                   activeRibbon === 'ink-stencil' && 'ink-stencil',
-                  "ink-bleed text-[15px] tracking-[0.02em] whitespace-pre pointer-events-auto"
+                  "ink-bleed paper-sheet text-[15px] tracking-[0.01em] whitespace-pre pointer-events-auto"
                 )}
                 style={{ 
                   width: `${PAGE_WIDTH}px`, 
                   height: `${PAGE_HEIGHT}px`,
-                  padding: `${MARGIN}px`,
+                  padding: `${MARGIN_TOP}px ${MARGIN_X}px ${MARGIN_BOTTOM}px`,
                   lineHeight: `${currentLineHeight}px`
                 }}
               >
-                <div className="relative z-0">
+                <div className="paper-impression" />
+                <div className="relative z-10">
                   {page.lines.map((line, lineIndex) => {
                     const isCursorOnThisLine = viewingPage === null && cursorPageIdx === pageIndex && cursorLineIdx === lineIndex;
 
@@ -396,7 +418,10 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
                       <div 
                         key={lineIndex} 
                         className="flex relative cursor-text"
-                        style={{ height: `${currentLineHeight}px` }}
+                        style={{
+                          height: `${currentLineHeight}px`,
+                          transform: `translateY(${(pseudoRandom((pageIndex + 1) * 7000 + lineIndex) - 0.5) * wearLevel * 0.75}px)`
+                        }}
                         onClick={(e) => {
                           e.stopPropagation();
                           let newPos = line.endIndex;
@@ -411,7 +436,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
                         }}
                       >
                         {isCursorOnThisLine && line.tokens.length === 0 && selectionStart === selectionEnd && (
-                          <span className="absolute w-[0.6em] h-[1.2em] bg-current opacity-50 animate-pulse mt-[2px] left-0" />
+                          <span className="typewriter-caret absolute left-0 mt-[1px]" />
                         )}
                         {line.tokens.map((token, tokenIndex) => {
                           const isLastToken = tokenIndex === line.tokens.length - 1;
@@ -421,7 +446,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
                             return (
                               <span key={tokenIndex} className={cn("inline-block relative", isSelected && "bg-blue-500/30 w-[0.6em] h-[1.2em]")}>
                                 {isCursorOnThisLine && cursorPos === token.index && selectionStart === selectionEnd && (
-                                  <span className="absolute w-[0.6em] h-[1.2em] bg-current opacity-50 animate-pulse mt-[2px] left-0" />
+                                  <span className="typewriter-caret absolute left-0 mt-[1px]" />
                                 )}
                               </span>
                             );
@@ -453,11 +478,11 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
                                 }}
                               >
                                 {isCursorOnThisLine && cursorPos === token.index && selectionStart === selectionEnd && (
-                                  <span className="absolute w-[0.6em] h-[1.2em] bg-current opacity-50 animate-pulse mt-[2px] left-0" />
+                                  <span className="typewriter-caret absolute left-0 mt-[1px]" />
                                 )}
                                 {' '}
                                 {isCursorOnThisLine && isLastToken && cursorPos === token.index + 1 && selectionStart === selectionEnd && (
-                                  <span className="absolute w-[0.6em] h-[1.2em] bg-current opacity-50 animate-pulse mt-[2px] right-0 translate-x-full" />
+                                  <span className="typewriter-caret absolute right-0 translate-x-full mt-[1px]" />
                                 )}
                               </span>
                             );
@@ -473,11 +498,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
                                   const charRibbon = RIBBONS[format.ribbon];
                                   const isSelected = charPos >= selectionStart && charPos < selectionEnd;
                                   const i = globalCharIndex++;
-                                  const seed = i * 1337;
-                                  const xJitter = (pseudoRandom(seed) - 0.5) * 1.5 * wearLevel;
-                                  const yJitter = (pseudoRandom(seed + 1) - 0.5) * 1.5 * wearLevel;
-                                  const rotJitter = (pseudoRandom(seed + 2) - 0.5) * 2 * wearLevel;
-                                  const opacityDrop = pseudoRandom(seed + 3) > (1 - wearLevel * 0.3) ? 0.7 : 1;
+                                  const charStyle = getCharacterRenderStyle(i);
 
                                   return (
                                     <span key={charIndex} className="inline-block relative" onClick={(e) => {
@@ -493,7 +514,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
                                       }
                                     }}>
                                       {isCursorOnThisLine && cursorPos === charPos && selectionStart === selectionEnd && (
-                                        <span className="absolute w-[0.6em] h-[1.2em] bg-current opacity-50 animate-pulse mt-[2px] left-0" />
+                                        <span className="typewriter-caret absolute left-0 mt-[1px]" />
                                       )}
                                       <span
                                         className={cn(
@@ -503,15 +524,12 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
                                           charRibbon === 'ink-stencil' && 'ink-stencil',
                                           isSelected && "bg-blue-500/30"
                                         )}
-                                        style={{
-                                          transform: `translate(${xJitter}px, ${yJitter}px) rotate(${rotJitter}deg)`,
-                                          opacity: opacityDrop,
-                                        }}
+                                        style={charStyle}
                                       >
                                         {char}
                                       </span>
                                       {isCursorOnThisLine && isLastToken && charIndex === token.text.length - 1 && cursorPos === charPos + 1 && selectionStart === selectionEnd && (
-                                        <span className="absolute w-[0.6em] h-[1.2em] bg-current opacity-50 animate-pulse mt-[2px] right-0 translate-x-full" />
+                                        <span className="typewriter-caret absolute right-0 translate-x-full mt-[1px]" />
                                       )}
                                     </span>
                                   );
