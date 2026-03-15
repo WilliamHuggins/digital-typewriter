@@ -1,6 +1,7 @@
 import React from 'react';
-import { Volume2, VolumeX, Download, Type, Palette, Home, AlignJustify } from 'lucide-react';
+import { Volume2, VolumeX, Download, Type, Palette, Home, AlignJustify, FileText, Columns } from 'lucide-react';
 import { type AudioStatus } from '../lib/audio';
+import { PAPER_SIZES, MARGIN_PRESETS, type PaperSizeKey, type MarginPresetKey } from '../lib/documentModel';
 
 export const MODELS = {
   remington: { name: 'Remington Noiseless', font: 'font-special-elite', wear: 0.8 },
@@ -29,6 +30,10 @@ interface ToolbarProps {
   audioStatus: AudioStatus;
   lineSpacing: number;
   setLineSpacing: (s: number) => void;
+  paperSize: PaperSizeKey;
+  setPaperSize: (s: PaperSizeKey) => void;
+  marginPreset: MarginPresetKey;
+  setMarginPreset: (m: MarginPresetKey) => void;
   onExportPNG: () => void;
   onExportPDF: () => void;
 }
@@ -47,6 +52,8 @@ export function Toolbar({
   audioEnabled, setAudioEnabled,
   audioStatus,
   lineSpacing, setLineSpacing,
+  paperSize, setPaperSize,
+  marginPreset, setMarginPreset,
   onExportPNG, onExportPDF
 }: ToolbarProps) {
   const statusTone = audioStatus === 'failed'
@@ -102,14 +109,40 @@ export function Toolbar({
 
         <div className="flex items-center gap-2">
           <AlignJustify size={18} className="text-zinc-500" />
-          <select 
-            value={lineSpacing} 
+          <select
+            value={lineSpacing}
             onChange={(e) => setLineSpacing(parseFloat(e.target.value))}
             className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
           >
             <option value={1}>Single Space</option>
             <option value={1.5}>1.5 Space</option>
             <option value={2}>Double Space</option>
+          </select>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <FileText size={18} className="text-zinc-500" />
+          <select
+            value={paperSize}
+            onChange={(e) => setPaperSize(e.target.value as PaperSizeKey)}
+            className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
+          >
+            {Object.entries(PAPER_SIZES).map(([k, v]) => (
+              <option key={k} value={k}>{v.name}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Columns size={18} className="text-zinc-500" />
+          <select
+            value={marginPreset}
+            onChange={(e) => setMarginPreset(e.target.value as MarginPresetKey)}
+            className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
+          >
+            {Object.entries(MARGIN_PRESETS).map(([k, v]) => (
+              <option key={k} value={k}>{v.name} Margins</option>
+            ))}
           </select>
         </div>
       </div>

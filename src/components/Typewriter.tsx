@@ -15,14 +15,19 @@ import {
 } from '../lib/ribbonWear';
 import {
   DEFAULT_PAGE_SPEC,
+  PAPER_SIZES,
+  MARGIN_PRESETS,
   layoutDocument,
   locateCursor,
   cursorColumn,
   computeScrollPosition,
   computeMetrics,
+  validateMargins,
   TYPING_OFFSET_Y,
   PAGE_GAP,
   type PageSpec,
+  type PaperSizeKey,
+  type MarginPresetKey,
   type DocumentModel,
   type Token,
 } from '../lib/documentModel';
@@ -34,6 +39,8 @@ interface TypewriterProps {
   audioStatus: AudioStatus;
   volume: number;
   lineSpacing: number;
+  paperSize: PaperSizeKey;
+  marginPreset: MarginPresetKey;
   paperRef: React.RefObject<HTMLDivElement>;
 }
 
@@ -49,7 +56,7 @@ interface MechanicalMotionState {
   machineOffsetY: number;
 }
 
-export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, lineSpacing, paperRef }: TypewriterProps) {
+export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, lineSpacing, paperSize, marginPreset, paperRef }: TypewriterProps) {
   const [text, setText] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [cursorPos, setCursorPos] = useState(0);
@@ -80,10 +87,29 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
   // Document model – the single source of truth for page/line layout
   // ---------------------------------------------------------------------------
 
-  const pageSpec: PageSpec = useMemo(() => ({
-    ...DEFAULT_PAGE_SPEC,
-    lineSpacing,
-  }), [lineSpacing]);
+  const pageSpec: PageSpec = useMemo(() => {
+    const paper = PAPER_SIZES[paperSize];
+    const margins = MARGIN_PRESETS[marginPreset];
+    const spec: PageSpec = {
+      ...DEFAULT_PAGE_SPEC,
+      paper,
+      marginTop: margins.marginTop,
+      marginBottom: margins.marginBottom,
+      marginLeft: margins.marginLeft,
+      marginRight: margins.marginRight,
+      lineSpacing,
+    };
+    // Validate and fall back to normal margins if the combination is degenerate
+    const check = validateMargins(paper, spec.marginTop, spec.marginBottom, spec.marginLeft, spec.marginRight);
+    if (!check.valid) {
+      const fallback = MARGIN_PRESETS.normal;
+      spec.marginTop = fallback.marginTop;
+      spec.marginBottom = fallback.marginBottom;
+      spec.marginLeft = fallback.marginLeft;
+      spec.marginRight = fallback.marginRight;
+    }
+    return spec;
+  }, [lineSpacing, paperSize, marginPreset]);
 
   const doc: DocumentModel = useMemo(
     () => layoutDocument(text, pageSpec),

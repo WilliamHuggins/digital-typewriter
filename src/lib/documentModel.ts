@@ -27,6 +27,56 @@ export const PAPER_SIZES: Record<string, PaperSize> = {
 export type PaperSizeKey = keyof typeof PAPER_SIZES;
 
 // ---------------------------------------------------------------------------
+// Margin presets
+// ---------------------------------------------------------------------------
+
+export interface MarginPreset {
+  name: string;
+  marginTop: number;
+  marginBottom: number;
+  marginLeft: number;
+  marginRight: number;
+}
+
+export const MARGIN_PRESETS: Record<string, MarginPreset> = {
+  narrow: { name: 'Narrow', marginTop: 72, marginBottom: 72, marginLeft: 72, marginRight: 72 },
+  normal: { name: 'Normal', marginTop: 122, marginBottom: 104, marginLeft: 104, marginRight: 104 },
+  wide: { name: 'Wide', marginTop: 144, marginBottom: 144, marginLeft: 152, marginRight: 152 },
+} as const;
+
+export type MarginPresetKey = keyof typeof MARGIN_PRESETS;
+
+// ---------------------------------------------------------------------------
+// Margin validation
+// ---------------------------------------------------------------------------
+
+/** Minimum margin in px (~0.5 inch) */
+const MIN_MARGIN = 48;
+/** Minimum content area in px (~2 inches) to prevent degenerate layouts */
+const MIN_CONTENT_SIZE = 192;
+
+export function validateMargins(
+  paper: PaperSize,
+  marginTop: number,
+  marginBottom: number,
+  marginLeft: number,
+  marginRight: number,
+): { valid: boolean; reason?: string } {
+  if (marginTop < MIN_MARGIN || marginBottom < MIN_MARGIN || marginLeft < MIN_MARGIN || marginRight < MIN_MARGIN) {
+    return { valid: false, reason: 'Margins must be at least 48px (~0.5")' };
+  }
+  const contentW = paper.width - marginLeft - marginRight;
+  const contentH = paper.height - marginTop - marginBottom;
+  if (contentW < MIN_CONTENT_SIZE) {
+    return { valid: false, reason: 'Horizontal margins are too large for this paper size' };
+  }
+  if (contentH < MIN_CONTENT_SIZE) {
+    return { valid: false, reason: 'Vertical margins are too large for this paper size' };
+  }
+  return { valid: true };
+}
+
+// ---------------------------------------------------------------------------
 // Page spec – everything needed to lay out a single page
 // ---------------------------------------------------------------------------
 
