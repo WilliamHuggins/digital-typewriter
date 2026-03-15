@@ -11,6 +11,7 @@ import {
   calculateRibbonInkStyle,
   createRibbonWearState,
   incrementRibbonWear,
+  buildLineImpressionLedger,
 } from '../lib/ribbonWear';
 
 interface TypewriterProps {
@@ -207,7 +208,13 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
         return createRibbonWearState(ribbon);
       }
 
-      return incrementRibbonWear(prev, newInsertedLen, ribbon);
+      const lineLedger = buildLineImpressionLedger({
+        text: newText,
+        insertedRange: { start: prefixLen, length: newInsertedLen },
+        maxColumns: MAX_CHARS_PER_LINE,
+      });
+
+      return incrementRibbonWear(prev, newInsertedLen, ribbon, lineLedger);
     });
     
     setText(newText);
