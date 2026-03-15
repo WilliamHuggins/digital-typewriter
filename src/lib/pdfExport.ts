@@ -1,11 +1,55 @@
 import { jsPDF } from 'jspdf';
 import type { DocLine, DocumentModel, PageSpec, Token } from './documentModel';
+import type { RibbonKey } from './ribbonWear';
 import { type PdfFontDef, COURIER_FONT, resolvePdfFont } from './pdfFonts';
 
 const PDF_FONT_BASE_SIZE = 15;
 const CALIBRATION_PROBE_TEXT = 'MMMMMMMMMM';
 const MIN_PDF_FONT_SIZE = 10;
 const MAX_PDF_FONT_SIZE = 24;
+
+// ---------------------------------------------------------------------------
+// Ribbon → PDF color mapping
+// ---------------------------------------------------------------------------
+
+/** RGB triplet used by jsPDF's setTextColor. */
+export interface PdfRgbColor {
+  r: number;
+  g: number;
+  b: number;
+}
+
+/**
+ * Centralized mapping from ribbon key to PDF text color.
+ *
+ * Values match the CSS ink colours defined in index.css:
+ *   black  → #111827   red → #991b1b   blue → #1e40af
+ *
+ * Stencil mode: On screen, stencil renders as transparent text with a debossed
+ * shadow to simulate cut-out lettering with no ink transfer. PDF has no native
+ * equivalent of CSS text-shadow with transparent fill. We render stencil text
+ * as a light warm gray (#c8c0b0) — close to the paper colour — so the text is
+ * faintly visible but clearly distinct from inked ribbons, preserving the
+ * "no ink" intent while keeping the export readable and printable.
+ */
+const RIBBON_PDF_COLORS: Record<RibbonKey, PdfRgbColor> = {
+  black:   { r: 0x11, g: 0x18, b: 0x27 },
+  red:     { r: 0x99, g: 0x1b, b: 0x1b },
+  blue:    { r: 0x1e, g: 0x40, b: 0xaf },
+  stencil: { r: 0xc8, g: 0xc0, b: 0xb0 },
+};
+
+const DEFAULT_PDF_COLOR: PdfRgbColor = RIBBON_PDF_COLORS.black;
+
+/** Resolve a ribbon key to its PDF RGB colour, falling back to black. */
+export function ribbonToPdfColor(ribbon: string | undefined): PdfRgbColor {
+  if (ribbon && ribbon in RIBBON_PDF_COLORS) {
+    return RIBBON_PDF_COLORS[ribbon as RibbonKey];
+  }
+  return DEFAULT_PDF_COLOR;
+}
+
+// ---------------------------------------------------------------------------
 
 interface GlyphCell {
   char: string;
@@ -95,6 +139,9 @@ export interface PdfExportOptions {
    *  matching embedded font is used in the PDF. Falls back to Courier
    *  if the font cannot be loaded. */
   modelKey?: string;
+  /** Active ribbon key. Determines text color in the PDF.
+   *  Falls back to black when omitted or unrecognised. */
+  ribbon?: string;
 }
 
 /**
@@ -119,11 +166,16 @@ export async function exportDocumentToPdf(
   const fontDef = await resolvePdfFont(pdf, options.modelKey);
   const calibration = calibratePdfFont(pdf, spec, fontDef);
 
+  // Apply ribbon ink colour
+  const inkColor = ribbonToPdfColor(options.ribbon);
+  pdf.setTextColor(inkColor.r, inkColor.g, inkColor.b);
+
   doc.pages.forEach((page, pageIndex) => {
     if (pageIndex > 0) {
       pdf.addPage([spec.paper.width, spec.paper.height], 'portrait');
       pdf.setFont(calibration.fontFamily, calibration.fontStyle);
       pdf.setFontSize(calibration.fontSize);
+      pdf.setTextColor(inkColor.r, inkColor.g, inkColor.b);
     }
 
     page.lines.forEach((line, lineIndex) => {
