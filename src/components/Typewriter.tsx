@@ -563,6 +563,7 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, model, ribbon, 
   };
 
   const handleClick = () => {
+    audioEngine.resumeFromUserGesture();
     if (textareaRef.current) {
       textareaRef.current.focus();
     }
@@ -692,6 +693,9 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, model, ribbon, 
         ref={containerRef}
         className={cn('flex-1 relative overflow-hidden flex justify-center', isMobile ? 'pt-3 pb-28 px-2' : 'px-3 md:px-6 py-4')}
         onClick={handleClick}
+        onPointerDown={() => {
+          audioEngine.resumeFromUserGesture();
+        }}
       >
         {/* Hidden textarea – still the input capture mechanism */}
         <textarea
