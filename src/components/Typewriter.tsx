@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
+import type { ResponsiveTier } from '../lib/responsive';
 import { cn, pseudoRandom } from '../lib/utils';
 import { MODELS, RIBBONS } from './Toolbar';
 import { type AudioStatus, audioEngine } from '../lib/audio';
@@ -35,6 +36,8 @@ import {
 } from '../lib/documentModel';
 
 interface TypewriterProps {
+  responsiveTier: ResponsiveTier;
+  mobileKeyboardOpen: boolean;
   model: keyof typeof MODELS;
   ribbon: keyof typeof RIBBONS;
   audioEnabled: boolean;
@@ -67,7 +70,7 @@ interface MechanicalMotionState {
   machineOffsetY: number;
 }
 
-export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, lineSpacing, paperSize, marginPreset, customMargins, paperRef, onDocumentModelChange, onRibbonWearChange, disableBackspaceDelete }: TypewriterProps) {
+export function Typewriter({ responsiveTier, mobileKeyboardOpen, model, ribbon, audioEnabled, audioStatus, volume, lineSpacing, paperSize, marginPreset, customMargins, paperRef, onDocumentModelChange, onRibbonWearChange, disableBackspaceDelete }: TypewriterProps) {
   const [text, setText] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [cursorPos, setCursorPos] = useState(0);
@@ -97,6 +100,12 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
   const returnMotionTimeoutsRef = useRef<number[]>([]);
 
   const activeModel = MODELS[model];
+
+  const isDesktop = responsiveTier === 'desktop';
+  const isTablet = responsiveTier === 'tablet';
+  const isMobile = responsiveTier === 'mobile';
+
+  const machineShellMode: 'immersive' | 'compact' | 'minimal' = isDesktop ? 'immersive' : isTablet ? 'compact' : 'minimal';
 
   const modelChassisPalette: Record<keyof typeof MODELS, {
     warm: string;
@@ -220,7 +229,8 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width } = entry.contentRect;
-        const availableWidth = width - 32;
+        const horizontalPadding = isMobile ? 18 : isTablet ? 28 : 32;
+        const availableWidth = width - horizontalPadding;
         if (availableWidth < pageSpec.paper.width) {
           setScale(availableWidth / pageSpec.paper.width);
         } else {
@@ -230,7 +240,11 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
     });
     observer.observe(containerRef.current);
     return () => observer.disconnect();
-  }, [pageSpec.paper.width]);
+  }, [pageSpec.paper.width, isMobile, isTablet]);
+
+  useEffect(() => {
+    setIsSidebarOpen(isDesktop);
+  }, [isDesktop]);
 
   useEffect(() => {
     audioEngine.setVolume(volume);
@@ -549,6 +563,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
   };
 
   const handleClick = () => {
+    audioEngine.resumeFromUserGesture();
     if (textareaRef.current) {
       textareaRef.current.focus();
     }
@@ -598,7 +613,12 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
   const activePageIdx = viewingPage !== null ? viewingPage : cursorPageIdx;
   const activeLineIdx = viewingPage !== null ? 0 : cursorLineIdx;
 
-  const scroll = computeScrollPosition(doc, activePageIdx, activeLineIdx, scale);
+  const scroll = computeScrollPosition(
+    doc,
+    activePageIdx,
+    viewingPage !== null ? activeLineIdx : Math.max(0, activeLineIdx - (isMobile && mobileKeyboardOpen ? 2 : 0)),
+    scale
+  );
 
   const cursorColumnOnLine = cursorColumn(doc, cursor, cursorPos);
   const carriageTravelOffset = prefersReducedMotion
@@ -617,12 +637,20 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
   // ---------------------------------------------------------------------------
 
   return (
-    <div className="flex-1 flex overflow-hidden bg-neutral-900 relative">
+    <div className={cn('flex-1 flex overflow-hidden bg-neutral-900 relative', isMobile ? 'flex-col' : 'flex-row') }>
       {/* Sidebar */}
       <div
         className={cn(
-          "w-64 bg-neutral-950 border-r border-neutral-800 flex flex-col transition-all duration-300 z-20",
-          isSidebarOpen ? "translate-x-0" : "-translate-x-full absolute h-full"
+          'bg-neutral-950 flex flex-col transition-all duration-300 z-20',
+          isMobile
+            ? isSidebarOpen
+              ? 'absolute inset-x-0 top-14 bottom-0 border-t border-neutral-800'
+              : 'hidden'
+            : isTablet
+              ? isSidebarOpen
+                ? 'absolute left-0 top-0 bottom-0 w-56 border-r border-neutral-800'
+                : 'hidden'
+              : 'w-64 border-r border-neutral-800'
         )}
       >
         <div className="p-4 border-b border-neutral-800 flex justify-between items-center text-neutral-400">
@@ -651,10 +679,10 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
       </div>
 
       {/* Toggle Sidebar Button (when closed) */}
-      {!isSidebarOpen && (
+      {!isSidebarOpen && !isDesktop && (
         <button
           onClick={() => setIsSidebarOpen(true)}
-          className="absolute left-4 top-4 z-20 bg-neutral-800 text-neutral-400 p-2 rounded-md hover:text-white hover:bg-neutral-700 transition-colors"
+          className={cn('absolute z-20 bg-neutral-800/95 text-neutral-300 px-3 py-2 rounded-md hover:text-white hover:bg-neutral-700 transition-colors', isMobile ? 'left-3 top-3 text-sm' : 'left-4 top-4')}
         >
           ☰ Pages
         </button>
@@ -663,8 +691,11 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
       {/* Main Typing Area */}
       <div
         ref={containerRef}
-        className="flex-1 relative overflow-hidden flex justify-center"
+        className={cn('flex-1 relative overflow-hidden flex justify-center', isMobile ? 'pt-3 pb-28 px-2' : 'px-3 md:px-6 py-4')}
         onClick={handleClick}
+        onPointerDown={() => {
+          audioEngine.resumeFromUserGesture();
+        }}
       >
         {/* Hidden textarea – still the input capture mechanism */}
         <textarea
@@ -683,12 +714,12 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
         {/* Paper Container – pages rendered from document model */}
         <div
           className={cn(
-            'absolute top-0 origin-top will-change-transform z-10',
+            'absolute top-0 origin-top will-change-transform z-10 max-w-full',
             prefersReducedMotion ? 'transition-transform duration-75 linear' : 'transition-transform duration-150 ease-out'
           )}
           style={{ transform: paperTransform }}
         >
-          <div ref={paperRef} className="flex flex-col gap-8 pointer-events-none">
+          <div ref={paperRef} className={cn('flex flex-col pointer-events-none', isMobile ? 'gap-5' : 'gap-8') }>
             {doc.pages.map((page, pageIndex) => (
               <div
                 key={pageIndex}
@@ -881,14 +912,14 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
 
         {/* Machine window/chassis – frames paper without obscuring typing area */}
         <div
-          className="absolute left-0 w-full pointer-events-none flex justify-center z-20"
+          className={cn('absolute left-0 w-full pointer-events-none flex justify-center z-20', machineShellMode === 'minimal' && 'opacity-45')}
           style={{
             top: `${TYPING_OFFSET_Y - pageSpec.marginTop - 70}px`,
             height: `${pageSpec.paper.height + 140}px`,
           }}
         >
           <div
-            className={cn("typewriter-machine-frame", `machine-model-${model}`)}
+            className={cn('typewriter-machine-frame', `machine-model-${model}`, machineShellMode === 'compact' && 'machine-shell-compact', machineShellMode === 'minimal' && 'machine-shell-minimal')}
             style={{
               width: `${pageSpec.paper.width + 124}px`,
               transform: guideTransform,
@@ -914,7 +945,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
 
         {/* Typewriter Guide overlay */}
         <div
-          className="absolute left-0 w-full pointer-events-none flex justify-center z-30"
+          className={cn('absolute left-0 w-full pointer-events-none flex justify-center z-30', isMobile && 'opacity-80')}
           style={{ top: `${TYPING_OFFSET_Y}px`, height: `${metrics.lineHeight}px` }}
         >
           <div

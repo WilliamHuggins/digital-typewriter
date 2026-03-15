@@ -781,6 +781,37 @@ export class TypewriterAudio {
     return this.initPromise;
   }
 
+
+  async resumeFromUserGesture() {
+    if (!this.enabled) return;
+
+    if (!this.ctx) {
+      await this.init();
+    }
+
+    if (!this.ctx) return;
+
+    if (this.ctx.state === 'suspended') {
+      try {
+        await this.ctx.resume();
+      } catch {
+        return;
+      }
+    }
+
+    // iOS Safari can require a started source node inside a gesture.
+    if (this.ctx.state === 'running') {
+      const buffer = this.ctx.createBuffer(1, 1, this.ctx.sampleRate);
+      const source = this.ctx.createBufferSource();
+      source.buffer = buffer;
+      const gain = this.ctx.createGain();
+      gain.gain.value = 0;
+      source.connect(gain);
+      gain.connect(this.ctx.destination);
+      source.start(0);
+    }
+  }
+
   setVolume(v: number) {
     this.volume = v;
   }
@@ -856,7 +887,9 @@ export class TypewriterAudio {
       this.ctx.resume().catch(() => {
         // Some browsers require repeated user gestures before audio unlocks.
       });
-      return;
+      if (this.ctx.state === 'suspended') {
+        return;
+      }
     }
 
     const index = this.pickBufferIndex(buffers, options.sampleKey);
