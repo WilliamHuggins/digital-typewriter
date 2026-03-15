@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Token } from './documentModel';
-import { computeCalibratedFontSize, tokensToGlyphCells, calibratePdfFont, ribbonToPdfColor, wearAdjustedPdfColor, calculatePdfGlyphJitter, MAX_PDF_JITTER_X, MAX_PDF_JITTER_Y, type PdfFontCalibration, type PdfRgbColor } from './pdfExport';
+import { computeCalibratedFontSize, tokensToGlyphCells, calibratePdfFont, ribbonToPdfColor, wearAdjustedPdfColor, calculatePdfGlyphJitter, MAX_PDF_JITTER_X, MAX_PDF_JITTER_Y, calculatePdfLineWobble, MAX_PDF_LINE_WOBBLE_Y, type PdfFontCalibration, type PdfRgbColor } from './pdfExport';
 import { COURIER_FONT, type PdfFontDef } from './pdfFonts';
 import { createRibbonWearState, calculateRibbonInkStyle, type RibbonWearState } from './ribbonWear';
 
@@ -441,5 +441,88 @@ describe('calculatePdfGlyphJitter', () => {
     const j = calculatePdfGlyphJitter(42, -0.5);
     assert.equal(j.dx, 0);
     assert.equal(j.dy, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// calculatePdfLineWobble – deterministic per-line vertical offsets
+// ---------------------------------------------------------------------------
+
+describe('calculatePdfLineWobble', () => {
+  it('is deterministic — same inputs produce same output', () => {
+    const a = calculatePdfLineWobble(0, 5, 1);
+    const b = calculatePdfLineWobble(0, 5, 1);
+    assert.equal(a.dy, b.dy);
+  });
+
+  it('produces different offsets for different lines on the same page', () => {
+    const a = calculatePdfLineWobble(0, 0, 1);
+    const b = calculatePdfLineWobble(0, 1, 1);
+    assert.notEqual(a.dy, b.dy, 'adjacent lines should have different wobble');
+  });
+
+  it('produces different offsets for the same line on different pages', () => {
+    const a = calculatePdfLineWobble(0, 3, 1);
+    const b = calculatePdfLineWobble(1, 3, 1);
+    assert.notEqual(a.dy, b.dy, 'same line on different pages should differ');
+  });
+
+  it('stays within ±MAX_PDF_LINE_WOBBLE_Y bounds at full wear', () => {
+    for (let page = 0; page < 5; page++) {
+      for (let line = 0; line < 50; line++) {
+        const w = calculatePdfLineWobble(page, line, 1);
+        assert.ok(Math.abs(w.dy) <= MAX_PDF_LINE_WOBBLE_Y,
+          `dy out of bounds at page ${page}, line ${line}: ${w.dy}`);
+      }
+    }
+  });
+
+  it('returns zero wobble when wearLevel is 0', () => {
+    const w = calculatePdfLineWobble(0, 5, 0);
+    assert.equal(w.dy, 0);
+  });
+
+  it('returns zero wobble when wearLevel is negative', () => {
+    const w = calculatePdfLineWobble(0, 5, -0.3);
+    assert.equal(w.dy, 0);
+  });
+
+  it('scales wobble with wearLevel', () => {
+    const full = calculatePdfLineWobble(2, 10, 1);
+    const half = calculatePdfLineWobble(2, 10, 0.5);
+    if (full.dy !== 0) {
+      assert.ok(Math.abs(half.dy) <= Math.abs(full.dy) + 0.001,
+        `half-wear wobble should not exceed full-wear wobble`);
+    }
+  });
+
+  it('does not cause excessive drift that would break line spacing', () => {
+    const lineHeight = 24; // default spec
+    // Maximum wobble should be a tiny fraction of line height
+    assert.ok(MAX_PDF_LINE_WOBBLE_Y < lineHeight * 0.03,
+      `max wobble (${MAX_PDF_LINE_WOBBLE_Y}px) should be <3% of line height (${lineHeight}px)`);
+
+    // Verify that adjacent line wobbles cannot cause overlap
+    for (let page = 0; page < 3; page++) {
+      for (let line = 0; line < 49; line++) {
+        const a = calculatePdfLineWobble(page, line, 1);
+        const b = calculatePdfLineWobble(page, line + 1, 1);
+        // Worst case: one line shifts down max, next shifts up max
+        // Even then, gap = lineHeight - 2 * MAX_PDF_LINE_WOBBLE_Y
+        const worstCaseGap = lineHeight - Math.abs(a.dy) - Math.abs(b.dy);
+        assert.ok(worstCaseGap > lineHeight * 0.95,
+          `adjacent lines should maintain >95% of line height gap at page ${page}, line ${line}`);
+      }
+    }
+  });
+
+  it('produces non-zero wobble for most lines at full wear', () => {
+    let nonZeroCount = 0;
+    for (let i = 0; i < 100; i++) {
+      const w = calculatePdfLineWobble(0, i, 1);
+      if (w.dy !== 0) nonZeroCount++;
+    }
+    assert.ok(nonZeroCount > 90,
+      `expected most lines to have wobble, got ${nonZeroCount}/100`);
   });
 });
