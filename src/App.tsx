@@ -4,7 +4,7 @@ import { jsPDF } from 'jspdf';
 import { Toolbar, MODELS, RIBBONS } from './components/Toolbar';
 import { Typewriter } from './components/Typewriter';
 import { audioEngine, type AudioStatus } from './lib/audio';
-import { DEFAULT_PAGE_SPEC } from './lib/documentModel';
+import { DEFAULT_PAGE_SPEC, PAPER_SIZES, MARGIN_PRESETS, type PaperSizeKey, type MarginPresetKey } from './lib/documentModel';
 
 export default function App() {
   const [model, setModel] = useState<keyof typeof MODELS>('remington');
@@ -13,7 +13,9 @@ export default function App() {
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [audioStatus, setAudioStatus] = useState<AudioStatus>('off');
   const [lineSpacing, setLineSpacing] = useState<number>(1);
-  
+  const [paperSize, setPaperSize] = useState<PaperSizeKey>('letter');
+  const [marginPreset, setMarginPreset] = useState<MarginPresetKey>('normal');
+
   const paperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -50,7 +52,7 @@ export default function App() {
     try {
       const pages = Array.from(paperRef.current.children) as HTMLElement[];
       
-      const { width, height } = DEFAULT_PAGE_SPEC.paper;
+      const { width, height } = PAPER_SIZES[paperSize];
 
       const pdf = new jsPDF({
         orientation: 'portrait',
@@ -81,23 +83,27 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen bg-neutral-900 text-neutral-200 font-sans overflow-hidden">
-      <Toolbar 
+      <Toolbar
         model={model} setModel={setModel}
         ribbon={ribbon} setRibbon={setRibbon}
         volume={volume} setVolume={setVolume}
         audioEnabled={audioEnabled} setAudioEnabled={setAudioEnabled}
         audioStatus={audioStatus}
         lineSpacing={lineSpacing} setLineSpacing={setLineSpacing}
+        paperSize={paperSize} setPaperSize={setPaperSize}
+        marginPreset={marginPreset} setMarginPreset={setMarginPreset}
         onExportPNG={handleExportPNG}
         onExportPDF={handleExportPDF}
       />
-      <Typewriter 
+      <Typewriter
         model={model}
         ribbon={ribbon}
         audioEnabled={audioEnabled}
         audioStatus={audioStatus}
         volume={volume}
         lineSpacing={lineSpacing}
+        paperSize={paperSize}
+        marginPreset={marginPreset}
         paperRef={paperRef}
       />
     </div>
