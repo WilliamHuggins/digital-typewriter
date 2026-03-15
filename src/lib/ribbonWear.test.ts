@@ -245,6 +245,7 @@ test('heavier-used line renders more worn than lighter-used line', () => {
     impressionCount: 0,
     lineImpressions: [220, 0],
     lineDescriptors: [],
+    chunkCache: { nextId: 1, chunks: [] },
   };
 
   const heavyInk = calculateRibbonInkStyle({
@@ -264,4 +265,86 @@ test('heavier-used line renders more worn than lighter-used line', () => {
   });
 
   assert.ok(heavyInk.opacity < lightInk.opacity);
+});
+
+
+test('chunk ids remain stable across small edits within the same newline chunk', () => {
+  const originalText = 'alpha beta gamma';
+  const originalLedger = buildLineImpressionLedger({
+    text: originalText,
+    insertedRange: { start: 0, length: originalText.length },
+    maxColumns: MAX_COLUMNS,
+  });
+  const initial = incrementRibbonWear(createRibbonWearState('black'), originalText.length, 'black', originalLedger);
+
+  const editedText = 'alpha beta gamma!';
+  const editedLedger = buildLineImpressionLedger({
+    text: editedText,
+    insertedRange: { start: editedText.length - 1, length: 1 },
+    maxColumns: MAX_COLUMNS,
+  });
+  const afterEdit = incrementRibbonWear(initial, 1, 'black', editedLedger);
+
+  assert.equal(initial.chunkCache.chunks.length, 1);
+  assert.equal(afterEdit.chunkCache.chunks.length, 1);
+  assert.equal(afterEdit.chunkCache.chunks[0].id, initial.chunkCache.chunks[0].id);
+});
+
+test('chunk anchoring preserves wear better through larger paragraph reflows', () => {
+  const initialText = 'alpha beta gamma delta epsilon zeta';
+  const initialLedger = buildLineImpressionLedger({
+    text: initialText,
+    insertedRange: { start: 0, length: initialText.length },
+    maxColumns: 14,
+  });
+  const baseline = incrementRibbonWear(createRibbonWearState('black'), initialText.length, 'black', initialLedger);
+  const seeded = {
+    ...baseline,
+    lineImpressions: [90, 70, 30],
+  };
+
+  const reflowText = 'alpha beta gamma delta epsilon zeta eta theta iota';
+  const reflowLedger = buildLineImpressionLedger({
+    text: reflowText,
+    insertedRange: { start: 0, length: 0 },
+    maxColumns: 10,
+  });
+
+  const remapped = incrementRibbonWear(seeded, 0, 'black', reflowLedger);
+
+  assert.equal(remapped.lineImpressions[0], 90);
+  assert.equal(remapped.lineImpressions[1], 70);
+  assert.equal(remapped.lineImpressions[2], 30);
+});
+
+test('chunk ids are reassigned sensibly when explicit newline split and merge occur', () => {
+  const originalText = 'alpha beta gamma';
+  const originalLedger = buildLineImpressionLedger({
+    text: originalText,
+    insertedRange: { start: 0, length: originalText.length },
+    maxColumns: MAX_COLUMNS,
+  });
+  const initial = incrementRibbonWear(createRibbonWearState('black'), originalText.length, 'black', originalLedger);
+
+  const splitText = 'alpha beta\ngamma';
+  const splitLedger = buildLineImpressionLedger({
+    text: splitText,
+    insertedRange: { start: 10, length: 1 },
+    maxColumns: MAX_COLUMNS,
+  });
+  const splitState = incrementRibbonWear(initial, 1, 'black', splitLedger);
+
+  assert.equal(splitState.chunkCache.chunks.length, 2);
+  assert.equal(splitState.chunkCache.chunks[0].id, initial.chunkCache.chunks[0].id);
+  assert.notEqual(splitState.chunkCache.chunks[1].id, splitState.chunkCache.chunks[0].id);
+
+  const mergedLedger = buildLineImpressionLedger({
+    text: originalText,
+    insertedRange: { start: 10, length: 0 },
+    maxColumns: MAX_COLUMNS,
+  });
+  const mergedState = incrementRibbonWear(splitState, 0, 'black', mergedLedger);
+
+  assert.equal(mergedState.chunkCache.chunks.length, 1);
+  assert.equal(mergedState.chunkCache.chunks[0].id, initial.chunkCache.chunks[0].id);
 });
