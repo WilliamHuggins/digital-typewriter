@@ -5,6 +5,7 @@ import {
   calculateRibbonInkStyle,
   createRibbonWearState,
   incrementRibbonWear,
+  stabilizeLineImpressions,
 } from './ribbonWear';
 
 const MAX_COLUMNS = 10;
@@ -102,6 +103,113 @@ test('full clear resets wear state', () => {
   assert.notDeepEqual(state, cleared);
 });
 
+test('line identity remains stable across a small edit before a wrapped line', () => {
+  const originalText = 'alpha beta\ngamma delta';
+  const originalLedger = buildLineImpressionLedger({
+    text: originalText,
+    insertedRange: { start: 0, length: originalText.length },
+    maxColumns: MAX_COLUMNS,
+  });
+
+  const baseline = incrementRibbonWear(createRibbonWearState('black'), originalText.length, 'black', originalLedger);
+  const seeded = {
+    ...baseline,
+    lineImpressions: [42, 7, 15],
+  };
+
+  const editedText = 'alpha zbeta\ngamma delta';
+  const editedLedger = buildLineImpressionLedger({
+    text: editedText,
+    insertedRange: { start: 6, length: 1 },
+    maxColumns: MAX_COLUMNS,
+  });
+
+  const afterEdit = incrementRibbonWear(seeded, 1, 'black', editedLedger);
+  assert.equal(afterEdit.lineImpressions[3], 15);
+});
+
+test('larger reflow falls back gracefully to near-index reassignment', () => {
+  const previous = createRibbonWearState('black');
+  const withContent = incrementRibbonWear(
+    previous,
+    31,
+    'black',
+    buildLineImpressionLedger({
+      text: 'one\ntwo\nthree\nfour\nfive\nsix',
+      insertedRange: { start: 0, length: 31 },
+      maxColumns: MAX_COLUMNS,
+    })
+  );
+
+  const seeded = {
+    ...withContent,
+    lineImpressions: [30, 25, 20, 15, 10, 5],
+  };
+  const reflowLedger = buildLineImpressionLedger({
+    text: 'zzzz zzzz zzzz zzzz zzzz zzzz',
+    insertedRange: { start: 0, length: 0 },
+    maxColumns: MAX_COLUMNS,
+  });
+
+  const remapped = incrementRibbonWear(seeded, 0, 'black', reflowLedger);
+  assert.deepEqual(remapped.lineImpressions, [30, 25, 20]);
+});
+
+test('stabilization is deterministic for repeated runs', () => {
+  const previousLedger = buildLineImpressionLedger({
+    text: 'first line\nsecond line\nthird line',
+    insertedRange: { start: 0, length: 32 },
+    maxColumns: MAX_COLUMNS,
+  });
+  const nextLedger = buildLineImpressionLedger({
+    text: 'first line!\nsecond line\nthird line',
+    insertedRange: { start: 10, length: 1 },
+    maxColumns: MAX_COLUMNS,
+  });
+
+  const a = stabilizeLineImpressions({
+    previousImpressions: [8, 13, 21],
+    previousLineDescriptors: previousLedger.lineDescriptors,
+    nextLineDescriptors: nextLedger.lineDescriptors,
+  });
+  const b = stabilizeLineImpressions({
+    previousImpressions: [8, 13, 21],
+    previousLineDescriptors: previousLedger.lineDescriptors,
+    nextLineDescriptors: nextLedger.lineDescriptors,
+  });
+
+  assert.deepEqual(a, b);
+});
+
+test('stabilized mapping keeps downstream wear continuity better than naive index-only mapping', () => {
+  const previousLineDescriptors = [
+    { hash: 1, head: 'intro', tail: 'intro', length: 5 },
+    { hash: 2, head: 'heavily worn', tail: 'worn line', length: 17 },
+    { hash: 3, head: 'tail', tail: 'tail', length: 4 },
+  ];
+  const nextLineDescriptors = [
+    { hash: 11, head: 'intro', tail: 'intro plus', length: 11 },
+    { hash: 12, head: 'plus', tail: 'plus', length: 4 },
+    { hash: 2, head: 'heavily worn', tail: 'worn line', length: 17 },
+    { hash: 3, head: 'tail', tail: 'tail', length: 4 },
+  ];
+
+  const oldImpressions = [2, 90, 4];
+  const naive = oldImpressions.slice(0, nextLineDescriptors.length);
+  while (naive.length < nextLineDescriptors.length) {
+    naive.push(0);
+  }
+
+  const stabilized = stabilizeLineImpressions({
+    previousImpressions: oldImpressions,
+    previousLineDescriptors,
+    nextLineDescriptors,
+  });
+
+  assert.equal(naive[2], 4);
+  assert.equal(stabilized[2], 90);
+});
+
 test('ink style is deterministic for same inputs', () => {
   const state = incrementRibbonWear(
     createRibbonWearState('blue'),
@@ -136,6 +244,7 @@ test('heavier-used line renders more worn than lighter-used line', () => {
     activeRibbon: 'black' as const,
     impressionCount: 0,
     lineImpressions: [220, 0],
+    lineDescriptors: [],
   };
 
   const heavyInk = calculateRibbonInkStyle({
