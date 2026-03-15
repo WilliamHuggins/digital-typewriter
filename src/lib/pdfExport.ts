@@ -173,6 +173,13 @@ function drawLine(
       pdf.text(char, glyphX + 0.4, y, { baseline: 'top' });
     }
 
+    // Render overstrikes — different characters typed over this position
+    if (emphasis?.overstrikes && emphasis.overstrikes.length > 0) {
+      for (const oChar of emphasis.overstrikes) {
+        pdf.text(oChar, glyphX, y, { baseline: 'top' });
+      }
+    }
+
     // Draw underline
     if (emphasis?.underline) {
       const underlineY = y + fontSize + PDF_UNDERLINE_OFFSET;
@@ -189,6 +196,8 @@ export interface CharEmphasisEntry {
   strikeCount: number;
   /** Whether the character has been underlined. */
   underline: boolean;
+  /** Additional characters typed over this position (different from base char). */
+  overstrikes: string[];
 }
 
 export interface PdfExportOptions {

@@ -250,25 +250,39 @@ describe('per-character ribbon color', () => {
 
 describe('CharEmphasisEntry', () => {
   it('default emphasis has strikeCount 1 and no underline', () => {
-    const entry: CharEmphasisEntry = { strikeCount: 1, underline: false };
+    const entry: CharEmphasisEntry = { strikeCount: 1, underline: false, overstrikes: [] };
     assert.equal(entry.strikeCount, 1);
     assert.equal(entry.underline, false);
+    assert.deepEqual(entry.overstrikes, []);
   });
 
   it('overstrike entry has strikeCount > 1', () => {
-    const entry: CharEmphasisEntry = { strikeCount: 3, underline: false };
+    const entry: CharEmphasisEntry = { strikeCount: 3, underline: false, overstrikes: [] };
     assert.ok(entry.strikeCount > 1, 'should be treated as bold');
   });
 
   it('underline entry has underline true', () => {
-    const entry: CharEmphasisEntry = { strikeCount: 1, underline: true };
+    const entry: CharEmphasisEntry = { strikeCount: 1, underline: true, overstrikes: [] };
     assert.equal(entry.underline, true);
   });
 
   it('can combine overstrike and underline on same character', () => {
-    const entry: CharEmphasisEntry = { strikeCount: 2, underline: true };
+    const entry: CharEmphasisEntry = { strikeCount: 2, underline: true, overstrikes: [] };
     assert.ok(entry.strikeCount > 1, 'should be bold');
     assert.equal(entry.underline, true);
+  });
+
+  it('tracks different-character overstrikes', () => {
+    const entry: CharEmphasisEntry = { strikeCount: 1, underline: false, overstrikes: ['X', 'Y'] };
+    assert.equal(entry.overstrikes.length, 2);
+    assert.equal(entry.overstrikes[0], 'X');
+    assert.equal(entry.overstrikes[1], 'Y');
+  });
+
+  it('can combine same-char bold with different-char overstrikes', () => {
+    const entry: CharEmphasisEntry = { strikeCount: 2, underline: false, overstrikes: ['B'] };
+    assert.ok(entry.strikeCount > 1, 'base char struck twice');
+    assert.equal(entry.overstrikes.length, 1, 'one different char overlaid');
   });
 });
 
@@ -280,10 +294,10 @@ describe('charEmphasis indexed by sourceIndex', () => {
   it('maps emphasis to the correct character via token sourceIndex', () => {
     // "AB C" → charEmphasis array: [bold-A, normal-B, space, underline-C]
     const charEmphasis: CharEmphasisEntry[] = [
-      { strikeCount: 2, underline: false },  // A at index 0
-      { strikeCount: 1, underline: false },  // B at index 1
-      { strikeCount: 1, underline: false },  // space at index 2
-      { strikeCount: 1, underline: true },   // C at index 3
+      { strikeCount: 2, underline: false, overstrikes: [] },  // A at index 0
+      { strikeCount: 1, underline: false, overstrikes: [] },  // B at index 1
+      { strikeCount: 1, underline: false, overstrikes: [] },  // space at index 2
+      { strikeCount: 1, underline: true, overstrikes: [] },   // C at index 3
     ];
     const tokens: Token[] = [
       { type: 'word', text: 'AB', index: 0 },

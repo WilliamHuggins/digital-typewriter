@@ -46,7 +46,12 @@ interface TypewriterProps {
   customMargins: CustomMargins;
   paperRef: React.RefObject<HTMLDivElement>;
   onDocumentModelChange?: (doc: DocumentModel) => void;
-  onExportDataChange?: (data: { charRibbons: string[]; charEmphasis: Array<{ strikeCount: number; underline: boolean }> }) => void;
+  /** Mutable ref that Typewriter keeps up to date with per-character
+   *  formatting data on every render. Avoids useEffect timing issues. */
+  exportDataRef?: React.MutableRefObject<{
+    charRibbons: string[];
+    charEmphasis: Array<{ strikeCount: number; underline: boolean; overstrikes: string[] }>;
+  } | null>;
   disableBackspaceDelete: boolean;
 }
 
@@ -58,6 +63,8 @@ interface CharFormat {
 interface CharEmphasis {
   strikeCount: number;
   underline: boolean;
+  /** Additional characters typed over this position (different from base char). */
+  overstrikes: string[];
 }
 
 interface MechanicalMotionState {
@@ -67,7 +74,7 @@ interface MechanicalMotionState {
   machineOffsetY: number;
 }
 
-export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, lineSpacing, paperSize, marginPreset, customMargins, paperRef, onDocumentModelChange, onExportDataChange, disableBackspaceDelete }: TypewriterProps) {
+export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, lineSpacing, paperSize, marginPreset, customMargins, paperRef, onDocumentModelChange, exportDataRef, disableBackspaceDelete }: TypewriterProps) {
   const [text, setText] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [cursorPos, setCursorPos] = useState(0);
@@ -140,12 +147,17 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
     onDocumentModelChange?.(doc);
   }, [doc, onDocumentModelChange]);
 
-  useEffect(() => {
-    onExportDataChange?.({
+  // Keep exportDataRef synchronised every render — no useEffect timing issues.
+  if (exportDataRef) {
+    exportDataRef.current = {
       charRibbons: charFormats.map(f => f.ribbon),
-      charEmphasis: charEmphasis.map(e => ({ strikeCount: e.strikeCount, underline: e.underline })),
-    });
-  }, [charFormats, charEmphasis, onExportDataChange]);
+      charEmphasis: charEmphasis.map(e => ({
+        strikeCount: e.strikeCount,
+        underline: e.underline,
+        overstrikes: e.overstrikes ?? [],
+      })),
+    };
+  }
 
   // ---------------------------------------------------------------------------
   // Effects (unchanged behaviour, now uses doc model constants)
@@ -403,7 +415,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
 
     setCharEmphasis(prev => {
       const next = [...prev];
-      next.splice(prefixLen, oldReplacedLen, ...Array(newInsertedLen).fill({ strikeCount: 1, underline: false }));
+      next.splice(prefixLen, oldReplacedLen, ...Array(newInsertedLen).fill({ strikeCount: 1, underline: false, overstrikes: [] }));
       return next;
     });
 
@@ -449,7 +461,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
       if (key === '_') {
         setCharEmphasis(prev => {
           const next = [...prev];
-          const existing = next[start] || { strikeCount: 1, underline: false };
+          const existing = next[start] || { strikeCount: 1, underline: false, overstrikes: [] };
           next[start] = { ...existing, underline: true };
           return next;
         });
@@ -465,9 +477,10 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
       const newText = `${text.slice(0, start)}${key}${text.slice(start + 1)}`;
 
       if (text[start] === key) {
+        // Same character — increment strike count (bold effect)
         setCharEmphasis(prev => {
           const next = [...prev];
-          const existing = next[start] || { strikeCount: 1, underline: false };
+          const existing = next[start] || { strikeCount: 1, underline: false, overstrikes: [] };
           next[start] = { ...existing, strikeCount: existing.strikeCount + 1 };
           return next;
         });
@@ -482,7 +495,22 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
         return;
       }
 
-      applyTextUpdate(newText, start + 1, start + 1);
+      // Different character — overstrike: keep original char, stack new one on top
+      setCharEmphasis(prev => {
+        const next = [...prev];
+        const existing = next[start] || { strikeCount: 1, underline: false, overstrikes: [] };
+        next[start] = { ...existing, overstrikes: [...existing.overstrikes, key] };
+        return next;
+      });
+      setRibbonWearState(prev => incrementRibbonWear(prev, 1, ribbon));
+      {
+        const nextPos = start + 1;
+        setCursorPos(nextPos);
+        setSelectionStart(nextPos);
+        setSelectionEnd(nextPos);
+        setViewingPage(null);
+        window.requestAnimationFrame(() => target.setSelectionRange(nextPos, nextPos));
+      }
       return;
     }
 
@@ -751,7 +779,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
                                   const charModel = MODELS[format.model];
                                   const charRibbon = RIBBONS[format.ribbon];
                                   const isSelected = charPos >= selectionStart && charPos < selectionEnd;
-                                  const emphasis = charEmphasis[charPos] || { strikeCount: 1, underline: false };
+                                  const emphasis = charEmphasis[charPos] || { strikeCount: 1, underline: false, overstrikes: [] };
                                   const i = globalCharIndex++;
                                   const lineSeedIndex = pageIndex * metrics.maxLinesPerPage + lineIndex;
                                   const baseStyle = getCharacterRenderStyle(i, charPos, lineSeedIndex, char, format.ribbon);
@@ -792,6 +820,20 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
                                       >
                                         {char}
                                       </span>
+                                      {emphasis.overstrikes.length > 0 && emphasis.overstrikes.map((oChar, oIdx) => (
+                                        <span
+                                          key={`os-${oIdx}`}
+                                          className={cn(
+                                            "absolute left-0 top-0 inline-block",
+                                            charModel.font,
+                                            charRibbon !== 'ink-stencil' && charRibbon,
+                                            charRibbon === 'ink-stencil' && 'ink-stencil',
+                                          )}
+                                          style={charStyle}
+                                        >
+                                          {oChar}
+                                        </span>
+                                      ))}
                                       {isCursorOnThisLine && isLastToken && charIndex === token.text.length - 1 && cursorPos === charPos + 1 && selectionStart === selectionEnd && (
                                         <span className="typewriter-caret absolute right-0 translate-x-full mt-[1px]" />
                                       )}

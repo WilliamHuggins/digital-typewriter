@@ -25,8 +25,10 @@ export default function App() {
 
   const paperRef = useRef<HTMLDivElement>(null);
   const latestDocRef = useRef<DocumentModel | null>(null);
-  const charRibbonsRef = useRef<string[]>([]);
-  const charEmphasisRef = useRef<CharEmphasisEntry[]>([]);
+  const exportDataRef = useRef<{
+    charRibbons: string[];
+    charEmphasis: CharEmphasisEntry[];
+  } | null>(null);
 
   useEffect(() => {
     const unsubscribe = audioEngine.onStatusChange(setAudioStatus);
@@ -64,8 +66,8 @@ export default function App() {
       await exportDocumentToPdf(latestDocRef.current, {
         modelKey: model,
         ribbon,
-        charRibbons: charRibbonsRef.current,
-        charEmphasis: charEmphasisRef.current,
+        charRibbons: exportDataRef.current?.charRibbons,
+        charEmphasis: exportDataRef.current?.charEmphasis,
       });
     } catch (err) {
       console.error('Failed to export PDF', err);
@@ -104,10 +106,7 @@ export default function App() {
         onDocumentModelChange={(doc) => {
           latestDocRef.current = doc;
         }}
-        onExportDataChange={({ charRibbons, charEmphasis }) => {
-          charRibbonsRef.current = charRibbons;
-          charEmphasisRef.current = charEmphasis;
-        }}
+        exportDataRef={exportDataRef}
       />
     </div>
   );
