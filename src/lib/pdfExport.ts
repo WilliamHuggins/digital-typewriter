@@ -1,8 +1,8 @@
 import { jsPDF } from 'jspdf';
 import type { DocLine, DocumentModel, PageSpec, Token } from './documentModel';
+import { type PdfFontDef, COURIER_FONT, resolvePdfFont } from './pdfFonts';
 
 const PDF_FONT_BASE_SIZE = 15;
-const PDF_FONT_FAMILY = 'courier';
 const CALIBRATION_PROBE_TEXT = 'MMMMMMMMMM';
 const MIN_PDF_FONT_SIZE = 10;
 const MAX_PDF_FONT_SIZE = 24;
@@ -12,11 +12,13 @@ interface GlyphCell {
   column: number;
 }
 
-interface PdfFontCalibration {
+export interface PdfFontCalibration {
   fontSize: number;
   charCellWidth: number;
   measuredCharWidth: number;
   widthScale: number;
+  fontFamily: string;
+  fontStyle: string;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -34,8 +36,12 @@ function measureCharWidth(pdf: jsPDF): number {
   return probeWidth / CALIBRATION_PROBE_TEXT.length;
 }
 
-function calibratePdfFont(pdf: jsPDF, spec: PageSpec): PdfFontCalibration {
-  pdf.setFont(PDF_FONT_FAMILY, 'normal');
+/**
+ * Calibrate PDF font sizing for a specific font against spec.charWidth.
+ * Works for both embedded typewriter fonts and the Courier fallback.
+ */
+export function calibratePdfFont(pdf: jsPDF, spec: PageSpec, fontDef: PdfFontDef): PdfFontCalibration {
+  pdf.setFont(fontDef.family, fontDef.style);
   pdf.setFontSize(PDF_FONT_BASE_SIZE);
 
   const baseMeasuredCharWidth = measureCharWidth(pdf);
@@ -49,6 +55,8 @@ function calibratePdfFont(pdf: jsPDF, spec: PageSpec): PdfFontCalibration {
     charCellWidth: spec.charWidth,
     measuredCharWidth,
     widthScale: measuredCharWidth > 0 ? spec.charWidth / measuredCharWidth : 1,
+    fontFamily: fontDef.family,
+    fontStyle: fontDef.style,
   };
 }
 
@@ -82,7 +90,23 @@ function drawLine(pdf: jsPDF, line: DocLine, x: number, y: number, charCellWidth
   });
 }
 
-export function exportDocumentToPdf(doc: DocumentModel): void {
+export interface PdfExportOptions {
+  /** Typewriter model key (e.g. 'remington', 'royal'). When set, the
+   *  matching embedded font is used in the PDF. Falls back to Courier
+   *  if the font cannot be loaded. */
+  modelKey?: string;
+}
+
+/**
+ * Export a DocumentModel to PDF, optionally embedding a typewriter-style font.
+ *
+ * The function is async because embedded font data may need to be
+ * lazy-loaded on first use.
+ */
+export async function exportDocumentToPdf(
+  doc: DocumentModel,
+  options: PdfExportOptions = {},
+): Promise<void> {
   const { spec, metrics } = doc;
 
   const pdf = new jsPDF({
@@ -91,12 +115,14 @@ export function exportDocumentToPdf(doc: DocumentModel): void {
     format: [spec.paper.width, spec.paper.height],
   });
 
-  const calibration = calibratePdfFont(pdf, spec);
+  // Resolve font: try embedded font for model, fall back to Courier
+  const fontDef = await resolvePdfFont(pdf, options.modelKey);
+  const calibration = calibratePdfFont(pdf, spec, fontDef);
 
   doc.pages.forEach((page, pageIndex) => {
     if (pageIndex > 0) {
       pdf.addPage([spec.paper.width, spec.paper.height], 'portrait');
-      pdf.setFont(PDF_FONT_FAMILY, 'normal');
+      pdf.setFont(calibration.fontFamily, calibration.fontStyle);
       pdf.setFontSize(calibration.fontSize);
     }
 
