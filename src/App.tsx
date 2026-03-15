@@ -65,6 +65,7 @@ export default function App() {
         modelKey: model,
         ribbon,
         wearState: latestWearRef.current ?? undefined,
+        wearLevel: MODELS[model].wear,
       });
     } catch (err) {
       console.error('Failed to export PDF', err);

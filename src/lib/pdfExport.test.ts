@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Token } from './documentModel';
-import { computeCalibratedFontSize, tokensToGlyphCells, calibratePdfFont, ribbonToPdfColor, wearAdjustedPdfColor, type PdfFontCalibration, type PdfRgbColor } from './pdfExport';
+import { computeCalibratedFontSize, tokensToGlyphCells, calibratePdfFont, ribbonToPdfColor, wearAdjustedPdfColor, calculatePdfGlyphJitter, MAX_PDF_JITTER_X, MAX_PDF_JITTER_Y, type PdfFontCalibration, type PdfRgbColor } from './pdfExport';
 import { COURIER_FONT, type PdfFontDef } from './pdfFonts';
 import { createRibbonWearState, calculateRibbonInkStyle, type RibbonWearState } from './ribbonWear';
 
@@ -365,5 +365,81 @@ describe('ribbon wear produces per-glyph PDF color variation', () => {
     // Should still produce a valid color close to the base
     assert.ok(result.r >= 0 && result.r <= 255);
     assert.ok(Math.abs(result.r - base.r) < 40, 'fresh ribbon should be close to base');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// calculatePdfGlyphJitter – deterministic per-character spatial offsets
+// ---------------------------------------------------------------------------
+
+describe('calculatePdfGlyphJitter', () => {
+  it('is deterministic — same inputs produce same output', () => {
+    const a = calculatePdfGlyphJitter(42, 1);
+    const b = calculatePdfGlyphJitter(42, 1);
+    assert.equal(a.dx, b.dx);
+    assert.equal(a.dy, b.dy);
+  });
+
+  it('produces different offsets for different character indices', () => {
+    const a = calculatePdfGlyphJitter(0, 1);
+    const b = calculatePdfGlyphJitter(1, 1);
+    const differs = a.dx !== b.dx || a.dy !== b.dy;
+    assert.ok(differs, 'adjacent characters should have different jitter');
+  });
+
+  it('stays within ±MAX_PDF_JITTER_X/Y bounds at full wear', () => {
+    // Test a large range of indices to confirm no outliers
+    for (let i = 0; i < 500; i++) {
+      const j = calculatePdfGlyphJitter(i, 1);
+      assert.ok(Math.abs(j.dx) <= MAX_PDF_JITTER_X,
+        `dx out of bounds at index ${i}: ${j.dx}`);
+      assert.ok(Math.abs(j.dy) <= MAX_PDF_JITTER_Y,
+        `dy out of bounds at index ${i}: ${j.dy}`);
+    }
+  });
+
+  it('returns zero jitter when wearLevel is 0', () => {
+    const j = calculatePdfGlyphJitter(42, 0);
+    assert.equal(j.dx, 0);
+    assert.equal(j.dy, 0);
+  });
+
+  it('scales jitter proportionally with wearLevel', () => {
+    const full = calculatePdfGlyphJitter(10, 1);
+    const half = calculatePdfGlyphJitter(10, 0.5);
+    // At half wear, magnitude should be roughly half (same sign, smaller)
+    if (full.dx !== 0) {
+      assert.ok(Math.abs(half.dx) < Math.abs(full.dx) + 0.001,
+        `half-wear dx should not exceed full-wear dx`);
+    }
+    if (full.dy !== 0) {
+      assert.ok(Math.abs(half.dy) < Math.abs(full.dy) + 0.001,
+        `half-wear dy should not exceed full-wear dy`);
+    }
+  });
+
+  it('does not produce drift that exceeds one character cell width', () => {
+    const charCellWidth = 9.6; // default spec
+    for (let i = 0; i < 500; i++) {
+      const j = calculatePdfGlyphJitter(i, 1);
+      assert.ok(Math.abs(j.dx) < charCellWidth * 0.1,
+        `dx should be <10% of cell width at index ${i}: ${j.dx}`);
+    }
+  });
+
+  it('produces non-zero jitter for most characters at full wear', () => {
+    let nonZeroCount = 0;
+    for (let i = 0; i < 100; i++) {
+      const j = calculatePdfGlyphJitter(i, 1);
+      if (j.dx !== 0 || j.dy !== 0) nonZeroCount++;
+    }
+    assert.ok(nonZeroCount > 90,
+      `expected most characters to have jitter, got ${nonZeroCount}/100`);
+  });
+
+  it('clamps negative wearLevel to zero jitter', () => {
+    const j = calculatePdfGlyphJitter(42, -0.5);
+    assert.equal(j.dx, 0);
+    assert.equal(j.dy, 0);
   });
 });
