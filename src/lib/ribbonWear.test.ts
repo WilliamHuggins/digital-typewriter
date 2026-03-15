@@ -330,6 +330,32 @@ test('sparse token anchors remain stable across small punctuation edits', () => 
   });
 
   assert.deepEqual(previous.lineDescriptors[0].tokenAnchors, next.lineDescriptors[0].tokenAnchors);
+  assert.equal(previous.lineDescriptors[0].segmentWindowIndex, next.lineDescriptors[0].segmentWindowIndex);
+  assert.deepEqual(previous.lineDescriptors[0].segmentWindowAnchors, next.lineDescriptors[0].segmentWindowAnchors);
+});
+
+test('segment window map is deterministic for same input', () => {
+  const first = buildLineImpressionLedger({
+    text: 'alpha beta gamma delta epsilon zeta eta theta iota',
+    insertedRange: { start: 0, length: 50 },
+    maxColumns: 10,
+  });
+  const second = buildLineImpressionLedger({
+    text: 'alpha beta gamma delta epsilon zeta eta theta iota',
+    insertedRange: { start: 0, length: 50 },
+    maxColumns: 10,
+  });
+
+  const firstWindows = first.lineDescriptors.map(line => ({
+    index: line.segmentWindowIndex,
+    anchors: line.segmentWindowAnchors,
+  }));
+  const secondWindows = second.lineDescriptors.map(line => ({
+    index: line.segmentWindowIndex,
+    anchors: line.segmentWindowAnchors,
+  }));
+
+  assert.deepEqual(firstWindows, secondWindows);
 });
 
 test('anchor signal improves same-chunk continuity under heavy line rewrites', () => {
@@ -355,6 +381,47 @@ test('anchor signal improves same-chunk continuity under heavy line rewrites', (
   });
 
   assert.equal(remapped[1], 70);
+});
+
+test('segment windows improve continuity under heavier same-chunk reflow', () => {
+  const previous = buildLineImpressionLedger({
+    text: 'opening line context keeps shape middle carries the most worn text tail line closes paragraph',
+    insertedRange: { start: 0, length: 96 },
+    maxColumns: 18,
+  });
+  const next = buildLineImpressionLedger({
+    text: 'opening line context with inserted bridge keeps shape now split middle carries the most worn text and more tail line closes paragraph',
+    insertedRange: { start: 0, length: 0 },
+    maxColumns: 13,
+  });
+
+  const withIds = (lines: typeof previous.lineDescriptors) => lines.map((line) => ({ ...line, chunkId: 7 }));
+  const remapped = stabilizeLineImpressions({
+    previousImpressions: [8, 13, 55, 21, 5],
+    previousLineDescriptors: withIds(previous.lineDescriptors),
+    nextLineDescriptors: withIds(next.lineDescriptors),
+  });
+
+  assert.ok(remapped.includes(55));
+});
+
+test('segment windows gracefully fallback when coarse signal is weak', () => {
+  const previousLineDescriptors = [
+    { hash: 100, head: '***', tail: '***', length: 3, tokenAnchors: [], chunkId: 2, chunkLineIndex: 0, segmentWindowIndex: 0, segmentWindowAnchors: [] },
+    { hash: 200, head: '---', tail: '---', length: 3, tokenAnchors: [], chunkId: 2, chunkLineIndex: 1, segmentWindowIndex: 2, segmentWindowAnchors: [] },
+  ];
+  const nextLineDescriptors = [
+    { hash: 101, head: '***', tail: '**', length: 2, tokenAnchors: [], chunkId: 2, chunkLineIndex: 0, segmentWindowIndex: 1, segmentWindowAnchors: [] },
+    { hash: 201, head: '---', tail: '--', length: 2, tokenAnchors: [], chunkId: 2, chunkLineIndex: 1, segmentWindowIndex: 1, segmentWindowAnchors: [] },
+  ];
+
+  const remapped = stabilizeLineImpressions({
+    previousImpressions: [12, 7],
+    previousLineDescriptors,
+    nextLineDescriptors,
+  });
+
+  assert.deepEqual(remapped, [12, 7]);
 });
 
 test('anchor scoring remains deterministic across repeated remaps', () => {

@@ -21,6 +21,8 @@ export interface LineDescriptor {
   tail: string;
   length: number;
   tokenAnchors: TokenAnchor[];
+  segmentWindowIndex?: number;
+  segmentWindowAnchors?: TokenAnchor[];
   chunkIndex?: number;
   chunkLineIndex?: number;
   chunkId?: number;
@@ -266,6 +268,11 @@ function buildRenderedLineLayout(text: string, maxColumns: number): {
     };
   });
 
+  assignChunkSegmentWindows({
+    lineDescriptors,
+    lineContentByIndex,
+  });
+
   const chunkDescriptors = text.split('\n').map(chunkText => toLineDescriptor(chunkText));
 
   return {
@@ -274,6 +281,71 @@ function buildRenderedLineLayout(text: string, maxColumns: number): {
     lineDescriptors,
     chunkDescriptors,
   };
+}
+
+function assignChunkSegmentWindows({
+  lineDescriptors,
+  lineContentByIndex,
+}: {
+  lineDescriptors: LineDescriptor[];
+  lineContentByIndex: Map<number, string>;
+}) {
+  const indicesByChunk = new Map<number, number[]>();
+  for (let lineIndex = 0; lineIndex < lineDescriptors.length; lineIndex++) {
+    const chunkIndex = lineDescriptors[lineIndex].chunkIndex ?? 0;
+    const bucket = indicesByChunk.get(chunkIndex) ?? [];
+    bucket.push(lineIndex);
+    indicesByChunk.set(chunkIndex, bucket);
+  }
+
+  for (const lineIndices of indicesByChunk.values()) {
+    const windows = buildSegmentWindowsForChunk(lineIndices, lineContentByIndex);
+    if (windows.length === 0) {
+      continue;
+    }
+
+    for (let windowIndex = 0; windowIndex < windows.length; windowIndex++) {
+      const window = windows[windowIndex];
+      for (let lineIndex = window.startLine; lineIndex <= window.endLine; lineIndex++) {
+        lineDescriptors[lineIndex].segmentWindowIndex = windowIndex;
+        lineDescriptors[lineIndex].segmentWindowAnchors = window.anchors;
+      }
+    }
+  }
+}
+
+function buildSegmentWindowsForChunk(
+  lineIndices: number[],
+  lineContentByIndex: Map<number, string>
+): Array<{ startLine: number; endLine: number; anchors: TokenAnchor[] }> {
+  if (lineIndices.length === 0) {
+    return [];
+  }
+
+  const lineCount = lineIndices.length;
+  const windowCount = lineCount <= 2 ? 1 : Math.min(5, Math.max(3, Math.round(Math.sqrt(lineCount))));
+  const windows: Array<{ startLine: number; endLine: number; anchors: TokenAnchor[] }> = [];
+
+  for (let windowIndex = 0; windowIndex < windowCount; windowIndex++) {
+    const startOffset = Math.floor((windowIndex * lineCount) / windowCount);
+    const endOffsetExclusive = Math.max(startOffset + 1, Math.floor(((windowIndex + 1) * lineCount) / windowCount));
+    const safeEndOffset = Math.min(lineCount, endOffsetExclusive) - 1;
+
+    const startLine = lineIndices[startOffset];
+    const endLine = lineIndices[safeEndOffset];
+    const combinedText: string[] = [];
+    for (let offset = startOffset; offset <= safeEndOffset; offset++) {
+      combinedText.push((lineContentByIndex.get(lineIndices[offset]) ?? '').trim());
+    }
+
+    windows.push({
+      startLine,
+      endLine,
+      anchors: buildSparseTokenAnchors(combinedText.join(' ').trim()),
+    });
+  }
+
+  return windows;
 }
 
 function toLineDescriptor(lineText: string): LineDescriptor {
@@ -532,7 +604,8 @@ function stabilizeByChunkIdentity({
           const expectedChunkLine = nextLineDescriptor.chunkLineIndex ?? 0;
           const previousChunkLine = previousLineDescriptor.chunkLineIndex ?? 0;
           const chunkDistance = Math.abs(previousChunkLine - expectedChunkLine);
-          const anchoredScore = scoreLineSimilarity(previousLineDescriptor, nextLineDescriptor, chunkDistance);
+          const segmentSignal = scoreSegmentWindowAlignment(previousLineDescriptor, nextLineDescriptor);
+          const anchoredScore = scoreLineSimilarity(previousLineDescriptor, nextLineDescriptor, chunkDistance) + segmentSignal;
           if (anchoredScore > bestAnchoredScore) {
             bestAnchoredScore = anchoredScore;
             bestAnchoredPrevious = previousIndex;
@@ -550,6 +623,7 @@ function stabilizeByChunkIdentity({
       const expectedChunkLine = nextLineDescriptor.chunkLineIndex ?? 0;
       let bestPreviousIndex = -1;
       let bestDistance = Number.POSITIVE_INFINITY;
+      let bestSegmentDistance = Number.POSITIVE_INFINITY;
 
       for (const previousIndex of previousIndices) {
         if (takenPrevious.has(previousIndex)) {
@@ -558,7 +632,12 @@ function stabilizeByChunkIdentity({
 
         const previousChunkLine = previousLineDescriptors[previousIndex].chunkLineIndex ?? 0;
         const distance = Math.abs(previousChunkLine - expectedChunkLine);
-        if (distance < bestDistance) {
+        const segmentDistance = Math.abs(
+          (previousLineDescriptors[previousIndex].segmentWindowIndex ?? 0) - (nextLineDescriptor.segmentWindowIndex ?? 0)
+        );
+
+        if (segmentDistance < bestSegmentDistance || (segmentDistance === bestSegmentDistance && distance < bestDistance)) {
+          bestSegmentDistance = segmentDistance;
           bestDistance = distance;
           bestPreviousIndex = previousIndex;
         }
@@ -571,6 +650,22 @@ function stabilizeByChunkIdentity({
       }
     }
   }
+}
+
+function scoreSegmentWindowAlignment(previousLine: LineDescriptor, nextLine: LineDescriptor): number {
+  if (previousLine.segmentWindowIndex === undefined || nextLine.segmentWindowIndex === undefined) {
+    return 0;
+  }
+
+  const indexDistance = Math.abs(previousLine.segmentWindowIndex - nextLine.segmentWindowIndex);
+  const coarsePositionSignal = Math.max(0, 1.3 - indexDistance * 0.6);
+  const anchorSignal = scoreAnchorSimilarity(previousLine.segmentWindowAnchors ?? [], nextLine.segmentWindowAnchors ?? []);
+
+  if (coarsePositionSignal <= 0 && anchorSignal <= 0) {
+    return 0;
+  }
+
+  return coarsePositionSignal + anchorSignal * 0.9;
 }
 
 function sharedPrefixLength(a: string, b: string): number {
