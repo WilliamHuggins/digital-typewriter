@@ -1,5 +1,92 @@
 export type AudioStatus = 'off' | 'loading' | 'ready' | 'failed';
 
+type AudioCategory = 'key' | 'space' | 'return' | 'bell';
+
+interface LayerConfig {
+  gain: number;
+  delay: number;
+  playbackRate: number;
+}
+
+interface PlaybackProfile {
+  baseVolume: number;
+  gainJitter: number;
+  playbackJitter: number;
+  varyPitch?: boolean;
+  mechanicalLayer?: LayerConfig;
+}
+
+interface ModelSoundProfile {
+  key: PlaybackProfile;
+  space: PlaybackProfile;
+  bell: PlaybackProfile;
+  returnCarriage: PlaybackProfile;
+  returnFeed: PlaybackProfile;
+  overlapCaps: Record<AudioCategory, number>;
+  bellZoneOffset: number;
+  bellResetOffset: number;
+}
+
+const DEFAULT_VOICE_CAPS: Record<AudioCategory, number> = {
+  key: 9,
+  space: 6,
+  return: 2,
+  bell: 2
+};
+
+const MODEL_SOUND_PROFILES: Record<string, ModelSoundProfile> = {
+  remington: {
+    key: { baseVolume: 0.72, gainJitter: 0.08, playbackJitter: 0.02, mechanicalLayer: { gain: 0.2, delay: 0.007, playbackRate: 0.98 } },
+    space: { baseVolume: 0.62, gainJitter: 0.06, playbackJitter: 0.018, mechanicalLayer: { gain: 0.18, delay: 0.01, playbackRate: 0.97 } },
+    bell: { baseVolume: 0.56, gainJitter: 0.03, playbackJitter: 0, varyPitch: false },
+    returnCarriage: { baseVolume: 0.78, gainJitter: 0.05, playbackJitter: 0.01, varyPitch: true, mechanicalLayer: { gain: 0.14, delay: 0.01, playbackRate: 0.95 } },
+    returnFeed: { baseVolume: 0.34, gainJitter: 0.03, playbackJitter: 0.012, mechanicalLayer: { gain: 0.1, delay: 0.01, playbackRate: 0.98 } },
+    overlapCaps: { key: 7, space: 5, return: 2, bell: 1 },
+    bellZoneOffset: 8,
+    bellResetOffset: 12
+  },
+  underwood: {
+    key: { baseVolume: 0.88, gainJitter: 0.1, playbackJitter: 0.03, mechanicalLayer: { gain: 0.32, delay: 0.006, playbackRate: 0.985 } },
+    space: { baseVolume: 0.68, gainJitter: 0.08, playbackJitter: 0.02, mechanicalLayer: { gain: 0.24, delay: 0.009, playbackRate: 0.97 } },
+    bell: { baseVolume: 0.64, gainJitter: 0.04, playbackJitter: 0, varyPitch: false },
+    returnCarriage: { baseVolume: 0.9, gainJitter: 0.07, playbackJitter: 0.013, varyPitch: true, mechanicalLayer: { gain: 0.2, delay: 0.011, playbackRate: 0.95 } },
+    returnFeed: { baseVolume: 0.4, gainJitter: 0.03, playbackJitter: 0.012, mechanicalLayer: { gain: 0.12, delay: 0.01, playbackRate: 0.98 } },
+    overlapCaps: { key: 9, space: 6, return: 2, bell: 1 },
+    bellZoneOffset: 7,
+    bellResetOffset: 12
+  },
+  royal: {
+    key: { baseVolume: 1, gainJitter: 0.12, playbackJitter: 0.028, mechanicalLayer: { gain: 0.4, delay: 0.006, playbackRate: 0.98 } },
+    space: { baseVolume: 0.74, gainJitter: 0.09, playbackJitter: 0.021, mechanicalLayer: { gain: 0.28, delay: 0.009, playbackRate: 0.965 } },
+    bell: { baseVolume: 0.74, gainJitter: 0.05, playbackJitter: 0, varyPitch: false },
+    returnCarriage: { baseVolume: 1, gainJitter: 0.08, playbackJitter: 0.015, varyPitch: true, mechanicalLayer: { gain: 0.24, delay: 0.011, playbackRate: 0.945 } },
+    returnFeed: { baseVolume: 0.46, gainJitter: 0.04, playbackJitter: 0.012, mechanicalLayer: { gain: 0.14, delay: 0.012, playbackRate: 0.975 } },
+    overlapCaps: { key: 9, space: 6, return: 2, bell: 1 },
+    bellZoneOffset: 7,
+    bellResetOffset: 11
+  },
+  olivetti: {
+    key: { baseVolume: 0.8, gainJitter: 0.07, playbackJitter: 0.038, mechanicalLayer: { gain: 0.22, delay: 0.004, playbackRate: 1.005 } },
+    space: { baseVolume: 0.64, gainJitter: 0.06, playbackJitter: 0.03, mechanicalLayer: { gain: 0.16, delay: 0.006, playbackRate: 1 } },
+    bell: { baseVolume: 0.62, gainJitter: 0.03, playbackJitter: 0, varyPitch: false },
+    returnCarriage: { baseVolume: 0.82, gainJitter: 0.05, playbackJitter: 0.012, varyPitch: true, mechanicalLayer: { gain: 0.14, delay: 0.009, playbackRate: 0.965 } },
+    returnFeed: { baseVolume: 0.36, gainJitter: 0.025, playbackJitter: 0.02, mechanicalLayer: { gain: 0.1, delay: 0.009, playbackRate: 0.995 } },
+    overlapCaps: { key: 8, space: 5, return: 2, bell: 1 },
+    bellZoneOffset: 8,
+    bellResetOffset: 13
+  },
+  ibm: {
+    key: { baseVolume: 0.76, gainJitter: 0.06, playbackJitter: 0.018, mechanicalLayer: { gain: 0.12, delay: 0.005, playbackRate: 1 } },
+    space: { baseVolume: 0.6, gainJitter: 0.05, playbackJitter: 0.015, mechanicalLayer: { gain: 0.1, delay: 0.007, playbackRate: 1 } },
+    bell: { baseVolume: 0.54, gainJitter: 0.025, playbackJitter: 0, varyPitch: false },
+    returnCarriage: { baseVolume: 0.74, gainJitter: 0.05, playbackJitter: 0.01, varyPitch: true, mechanicalLayer: { gain: 0.1, delay: 0.01, playbackRate: 0.98 } },
+    returnFeed: { baseVolume: 0.32, gainJitter: 0.02, playbackJitter: 0.01, mechanicalLayer: { gain: 0.08, delay: 0.009, playbackRate: 1 } },
+    overlapCaps: { key: 7, space: 5, return: 2, bell: 1 },
+    bellZoneOffset: 9,
+    bellResetOffset: 14
+  }
+};
+
 export class TypewriterAudio {
   ctx: AudioContext | null = null;
   enabled: boolean = false;
@@ -246,6 +333,18 @@ export class TypewriterAudio {
     return Math.max(min, Math.min(max, value));
   }
 
+  private getModelProfile(model: string): ModelSoundProfile {
+    return MODEL_SOUND_PROFILES[model] ?? MODEL_SOUND_PROFILES.remington;
+  }
+
+  getBellColumns(maxCharsPerLine: number, model: string): { ringAtColumn: number; resetAtColumn: number } {
+    const profile = this.getModelProfile(model);
+    return {
+      ringAtColumn: Math.max(1, maxCharsPerLine - profile.bellZoneOffset),
+      resetAtColumn: Math.max(0, maxCharsPerLine - profile.bellResetOffset)
+    };
+  }
+
   private pickBufferIndex(buffers: AudioBuffer[], key: string) {
     if (buffers.length <= 1) return 0;
 
@@ -263,15 +362,8 @@ export class TypewriterAudio {
     return selectedIndex;
   }
 
-  private registerVoice(source: AudioBufferSourceNode, gain: GainNode, voiceGroup: string) {
-    const voiceCaps: Record<string, number> = {
-      key: 9,
-      space: 6,
-      return: 2,
-      bell: 2
-    };
-
-    const cap = voiceCaps[voiceGroup] ?? 6;
+  private registerVoice(source: AudioBufferSourceNode, gain: GainNode, voiceGroup: AudioCategory, voiceCapOverride?: number) {
+    const cap = voiceCapOverride ?? DEFAULT_VOICE_CAPS[voiceGroup] ?? 6;
     const inGroup = this.activeVoices.filter((voice) => voice.key === voiceGroup);
 
     if (inGroup.length >= cap) {
@@ -299,6 +391,7 @@ export class TypewriterAudio {
       playbackJitter: number;
       mechanicalLayer?: { gain: number; delay: number; playbackRate: number };
       varyPitch?: boolean;
+      voiceCap?: number;
     }
   ) {
     if (!this.enabled || !this.ctx || buffers.length === 0) return;
@@ -320,7 +413,7 @@ export class TypewriterAudio {
     source.connect(gainNode);
     gainNode.connect(this.ctx.destination);
 
-    this.registerVoice(source, gainNode, options.category);
+    this.registerVoice(source, gainNode, options.category, options.voiceCap);
     source.start(0);
 
     if (options.mechanicalLayer && buffers.length > 1) {
@@ -345,55 +438,79 @@ export class TypewriterAudio {
       layerSource.connect(layerGain);
       layerGain.connect(this.ctx.destination);
 
-      this.registerVoice(layerSource, layerGain, options.category);
+      this.registerVoice(layerSource, layerGain, options.category, options.voiceCap);
       layerSource.start(this.ctx.currentTime + options.mechanicalLayer.delay + Math.random() * 0.004);
     }
   }
 
   playKeypress(isSpace: boolean = false, model: string = 'remington') {
+    const profile = this.getModelProfile(model);
     if (isSpace) {
       this.playBuffer(this.buffers.space, {
         category: 'space',
         sampleKey: 'space',
-        baseVolume: 0.72,
-        gainJitter: 0.09,
-        playbackJitter: 0.025,
-        mechanicalLayer: { gain: 0.45, delay: 0.009, playbackRate: 0.97 }
+        ...profile.space,
+        voiceCap: profile.overlapCaps.space
       });
     } else {
       const modelBuffers = this.buffers.models[model] || this.buffers.models.remington;
       this.playBuffer(modelBuffers, {
         category: 'key',
         sampleKey: `model-${model}`,
-        baseVolume: 0.92,
-        gainJitter: 0.12,
-        playbackJitter: 0.035,
-        mechanicalLayer: { gain: 0.36, delay: 0.006, playbackRate: 0.985 }
+        ...profile.key,
+        voiceCap: profile.overlapCaps.key
       });
     }
   }
 
-  playBell() {
+  playBell(model: string = 'remington') {
+    const profile = this.getModelProfile(model);
     this.playBuffer(this.buffers.bell, {
       category: 'bell',
       sampleKey: 'bell',
-      baseVolume: 0.68,
-      gainJitter: 0.05,
-      playbackJitter: 0,
-      varyPitch: false
+      ...profile.bell,
+      voiceCap: profile.overlapCaps.bell
     });
   }
 
-  playReturn() {
+  playReturn(model: string = 'remington') {
+    const profile = this.getModelProfile(model);
     this.playBuffer(this.buffers.return, {
       category: 'return',
-      sampleKey: 'return',
-      baseVolume: 0.98,
-      gainJitter: 0.08,
-      playbackJitter: 0.015,
-      varyPitch: true,
-      mechanicalLayer: { gain: 0.25, delay: 0.014, playbackRate: 0.95 }
+      sampleKey: `return-${model}-carriage`,
+      ...profile.returnCarriage,
+      voiceCap: profile.overlapCaps.return
     });
+
+    if (!this.enabled || !this.ctx) return;
+
+    const feedDelay = 0.028;
+    window.setTimeout(() => {
+      if (!this.enabled || !this.ctx) return;
+
+      this.playBuffer(this.buffers.space, {
+        category: 'return',
+        sampleKey: `return-${model}-feed`,
+        ...profile.returnFeed,
+        voiceCap: profile.overlapCaps.return
+      });
+    }, feedDelay * 1000);
+  }
+
+  getSoundPersonality(model: string) {
+    return this.getModelProfile(model);
+  }
+
+  getSoundPersonalitySummary(model: string) {
+    const profile = this.getModelProfile(model);
+    return {
+      keyGain: profile.key.baseVolume,
+      keyPlaybackJitter: profile.key.playbackJitter,
+      mechanicalLayerGain: profile.key.mechanicalLayer?.gain ?? 0,
+      returnIntensity: profile.returnCarriage.baseVolume,
+      bellIntensity: profile.bell.baseVolume,
+      overlapCaps: profile.overlapCaps
+    };
   }
 }
 
