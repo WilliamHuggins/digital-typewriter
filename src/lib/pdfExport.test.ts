@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Token } from './documentModel';
-import { computeCalibratedFontSize, tokensToGlyphCells, calibratePdfFont, type PdfFontCalibration } from './pdfExport';
+import { computeCalibratedFontSize, tokensToGlyphCells, calibratePdfFont, ribbonToPdfColor, type PdfFontCalibration, type PdfRgbColor } from './pdfExport';
 import { COURIER_FONT, type PdfFontDef } from './pdfFonts';
 
 // ---------------------------------------------------------------------------
@@ -149,5 +149,95 @@ describe('calibratePdfFont', () => {
     const cal = calibratePdfFont(narrowMock as any, spec, font);
     assert.ok(cal.fontSize > 15, `expected scaled-up font size, got ${cal.fontSize}`);
     assert.equal(cal.charCellWidth, 9.6);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ribbonToPdfColor – ribbon key → RGB mapping
+// ---------------------------------------------------------------------------
+
+describe('ribbonToPdfColor', () => {
+  it('returns correct color for black ribbon', () => {
+    const color = ribbonToPdfColor('black');
+    assert.deepEqual(color, { r: 0x11, g: 0x18, b: 0x27 });
+  });
+
+  it('returns correct color for red ribbon', () => {
+    const color = ribbonToPdfColor('red');
+    assert.deepEqual(color, { r: 0x99, g: 0x1b, b: 0x1b });
+  });
+
+  it('returns correct color for blue ribbon', () => {
+    const color = ribbonToPdfColor('blue');
+    assert.deepEqual(color, { r: 0x1e, g: 0x40, b: 0xaf });
+  });
+
+  it('returns stencil color for stencil ribbon', () => {
+    const color = ribbonToPdfColor('stencil');
+    assert.deepEqual(color, { r: 0xc8, g: 0xc0, b: 0xb0 });
+  });
+
+  it('falls back to black for undefined ribbon', () => {
+    const color = ribbonToPdfColor(undefined);
+    assert.deepEqual(color, { r: 0x11, g: 0x18, b: 0x27 });
+  });
+
+  it('falls back to black for unknown ribbon key', () => {
+    const color = ribbonToPdfColor('purple');
+    assert.deepEqual(color, { r: 0x11, g: 0x18, b: 0x27 });
+  });
+
+  it('falls back to black for empty string', () => {
+    const color = ribbonToPdfColor('');
+    assert.deepEqual(color, { r: 0x11, g: 0x18, b: 0x27 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PDF export with ribbon color – integration-level mock test
+// ---------------------------------------------------------------------------
+
+describe('PDF export applies ribbon color', () => {
+  function makeMockPdfWithColorTracking() {
+    let currentFontSize = 15;
+    const textColors: Array<{ r: number; g: number; b: number }> = [];
+
+    return {
+      textColors,
+      setFont(_family: string, _style: string) {},
+      setFontSize(size: number) { currentFontSize = size; },
+      getTextWidth(text: string): number {
+        const scale = currentFontSize / 15;
+        return text.length * 9.0 * scale;
+      },
+      setTextColor(r: number, g: number, b: number) {
+        textColors.push({ r, g, b });
+      },
+      text(_text: string, _x: number, _y: number, _opts?: any) {},
+      addPage(_format: any, _orientation: string) {},
+      save(_filename: string) {},
+    };
+  }
+
+  it('sets text color to red when ribbon is red', () => {
+    const mock = makeMockPdfWithColorTracking();
+    const color = ribbonToPdfColor('red');
+    mock.setTextColor(color.r, color.g, color.b);
+    assert.equal(mock.textColors.length, 1);
+    assert.deepEqual(mock.textColors[0], { r: 0x99, g: 0x1b, b: 0x1b });
+  });
+
+  it('sets text color to blue when ribbon is blue', () => {
+    const mock = makeMockPdfWithColorTracking();
+    const color = ribbonToPdfColor('blue');
+    mock.setTextColor(color.r, color.g, color.b);
+    assert.deepEqual(mock.textColors[0], { r: 0x1e, g: 0x40, b: 0xaf });
+  });
+
+  it('defaults to black for missing ribbon option', () => {
+    const mock = makeMockPdfWithColorTracking();
+    const color = ribbonToPdfColor(undefined);
+    mock.setTextColor(color.r, color.g, color.b);
+    assert.deepEqual(mock.textColors[0], { r: 0x11, g: 0x18, b: 0x27 });
   });
 });
