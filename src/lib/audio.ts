@@ -743,8 +743,14 @@ export class TypewriterAudio {
       if (!this.ctx) {
         this.ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
       }
+
+      // Do not block initialization on AudioContext resume. Some browsers
+      // keep resume pending until a user gesture, which would leave status
+      // stuck on "loading" forever.
       if (this.ctx.state === 'suspended') {
-        await this.ctx.resume();
+        this.ctx.resume().catch((error) => {
+          console.debug('[audio] Resume deferred until user gesture:', error);
+        });
       }
 
       // Generate all model-specific synthesized sounds
@@ -845,6 +851,13 @@ export class TypewriterAudio {
     }
   ) {
     if (!this.enabled || !this.ctx || buffers.length === 0) return;
+
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume().catch(() => {
+        // Some browsers require repeated user gestures before audio unlocks.
+      });
+      return;
+    }
 
     const index = this.pickBufferIndex(buffers, options.sampleKey);
     const buffer = buffers[index];
