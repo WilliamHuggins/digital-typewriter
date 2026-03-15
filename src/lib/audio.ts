@@ -29,6 +29,16 @@ export class TypewriterAudio {
     return: []
   };
 
+  private base64ToArrayBuffer(base64Text: string): ArrayBuffer {
+    const cleaned = base64Text.replace(/\s+/g, '');
+    const binary = atob(cleaned);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer;
+  }
+
   private async loadSound(url: string): Promise<AudioBuffer | null> {
     if (!this.ctx) return null;
     try {
@@ -38,7 +48,18 @@ export class TypewriterAudio {
         return null;
       }
 
-      const arrayBuffer = await response.arrayBuffer();
+      let arrayBuffer: ArrayBuffer;
+      if (url.endsWith('.b64')) {
+        const base64Text = await response.text();
+        if (!base64Text.trim()) {
+          console.error(`[audio] Failed to load sound ${url}: empty base64 payload`);
+          return null;
+        }
+        arrayBuffer = this.base64ToArrayBuffer(base64Text);
+      } else {
+        arrayBuffer = await response.arrayBuffer();
+      }
+
       if (arrayBuffer.byteLength === 0) {
         console.error(`[audio] Failed to load sound ${url}: empty file`);
         return null;
@@ -161,25 +182,35 @@ export class TypewriterAudio {
 
       const loadAll = async (urls: string[], label: string) => {
         const results = await Promise.all(urls.map(async (url) => ({ url, buffer: await this.loadSound(url) })));
+        const loaded = results.filter((result) => result.buffer !== null).map((result) => result.url);
         const failed = results.filter((result) => result.buffer === null).map((result) => result.url);
+
+        if (loaded.length > 0) {
+          console.info(`[audio] ${label} loaded ${loaded.length}/${urls.length} real asset(s): ${loaded.join(', ')}`);
+        }
         if (failed.length > 0) {
           console.warn(`[audio] ${label} loaded with missing assets: ${failed.join(', ')}`);
         }
+
+        if (loaded.length === 0) {
+          console.warn(`[audio] ${label} has no decodable real assets. Fallback synthesis will be used.`);
+        }
+
         return results
           .filter((result) => result.buffer !== null)
           .map((result) => result.buffer as AudioBuffer);
       };
 
-      this.buffers.models.remington = await loadAll(['/sounds/soft-click.wav', '/sounds/soft-hit.wav'], 'remington');
-      this.buffers.models.underwood = await loadAll(['/sounds/old-typing.wav', '/sounds/mechanical-hit.wav', '/sounds/mechanical-single-hit.wav'], 'underwood');
-      this.buffers.models.royal = await loadAll(['/sounds/typewriter-hit.wav', '/sounds/single-mechanical-hit.wav'], 'royal');
-      this.buffers.models.olivetti = await loadAll(['/sounds/hard-click.wav', '/sounds/keyboard-typing.wav'], 'olivetti');
-      this.buffers.models.ibm = await loadAll(['/sounds/electric-typing.wav', '/sounds/electronic-typing.wav'], 'ibm');
+      this.buffers.models.remington = await loadAll(['/sounds/soft-click.wav.b64', '/sounds/soft-hit.wav.b64'], 'remington');
+      this.buffers.models.underwood = await loadAll(['/sounds/old-typing.wav.b64', '/sounds/mechanical-hit.wav.b64', '/sounds/mechanical-single-hit.wav.b64'], 'underwood');
+      this.buffers.models.royal = await loadAll(['/sounds/typewriter-hit.wav.b64', '/sounds/single-mechanical-hit.wav.b64'], 'royal');
+      this.buffers.models.olivetti = await loadAll(['/sounds/hard-click.wav.b64', '/sounds/keyboard-typing.wav.b64'], 'olivetti');
+      this.buffers.models.ibm = await loadAll(['/sounds/electric-typing.wav.b64', '/sounds/electronic-typing.wav.b64'], 'ibm');
 
-      this.buffers.space = await loadAll(['/sounds/soft-hit.wav', '/sounds/soft-click.wav'], 'space');
-      this.buffers.bell = await loadAll(['/sounds/bell-1.wav'], 'bell');
+      this.buffers.space = await loadAll(['/sounds/soft-hit.wav.b64', '/sounds/soft-click.wav.b64'], 'space');
+      this.buffers.bell = await loadAll(['/sounds/bell-1.wav.b64'], 'bell');
       this.buffers.return = await loadAll(
-        ['/sounds/carriage-return-1.wav', '/sounds/carriage-return-2.flac', '/sounds/mechanical-hit.wav'],
+        ['/sounds/carriage-return-1.wav.b64', '/sounds/carriage-return-2.wav.b64', '/sounds/mechanical-hit.wav.b64'],
         'return'
       );
 
