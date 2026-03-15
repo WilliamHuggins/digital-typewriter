@@ -54,6 +54,8 @@ export function ribbonToPdfColor(ribbon: string | undefined): PdfRgbColor {
 interface GlyphCell {
   char: string;
   column: number;
+  /** Index into the original source text, used to look up per-character ribbon. */
+  sourceIndex: number;
 }
 
 export interface PdfFontCalibration {
@@ -115,8 +117,8 @@ export function tokensToGlyphCells(tokens: Token[]): GlyphCell[] {
     }
 
     if (token.type === 'word') {
-      for (const char of token.text) {
-        glyphs.push({ char, column });
+      for (let i = 0; i < token.text.length; i++) {
+        glyphs.push({ char: token.text[i], column, sourceIndex: token.index + i });
         column += 1;
       }
     }
@@ -125,11 +127,29 @@ export function tokensToGlyphCells(tokens: Token[]): GlyphCell[] {
   return glyphs;
 }
 
-function drawLine(pdf: jsPDF, line: DocLine, x: number, y: number, charCellWidth: number) {
+function drawLine(
+  pdf: jsPDF,
+  line: DocLine,
+  x: number,
+  y: number,
+  charCellWidth: number,
+  charRibbons: string[] | undefined,
+  fallbackColor: PdfRgbColor,
+) {
   const glyphs = tokensToGlyphCells(line.tokens);
   if (glyphs.length === 0) return;
 
-  glyphs.forEach(({ char, column }) => {
+  let activeColor = fallbackColor;
+
+  glyphs.forEach(({ char, column, sourceIndex }) => {
+    if (charRibbons) {
+      const ribbonKey = charRibbons[sourceIndex];
+      const color = ribbonKey ? ribbonToPdfColor(ribbonKey) : fallbackColor;
+      if (color.r !== activeColor.r || color.g !== activeColor.g || color.b !== activeColor.b) {
+        pdf.setTextColor(color.r, color.g, color.b);
+        activeColor = color;
+      }
+    }
     pdf.text(char, x + column * charCellWidth, y, { baseline: 'top' });
   });
 }
@@ -139,9 +159,13 @@ export interface PdfExportOptions {
    *  matching embedded font is used in the PDF. Falls back to Courier
    *  if the font cannot be loaded. */
   modelKey?: string;
-  /** Active ribbon key. Determines text color in the PDF.
-   *  Falls back to black when omitted or unrecognised. */
+  /** Fallback ribbon key used when charRibbons is not provided or a
+   *  character has no entry. Falls back to black when omitted. */
   ribbon?: string;
+  /** Per-character ribbon keys indexed by source-text position.
+   *  When provided, each glyph is rendered in the colour of the ribbon
+   *  that was active when it was typed, enabling multi-colour export. */
+  charRibbons?: string[];
 }
 
 /**
@@ -166,22 +190,25 @@ export async function exportDocumentToPdf(
   const fontDef = await resolvePdfFont(pdf, options.modelKey);
   const calibration = calibratePdfFont(pdf, spec, fontDef);
 
-  // Apply ribbon ink colour
-  const inkColor = ribbonToPdfColor(options.ribbon);
-  pdf.setTextColor(inkColor.r, inkColor.g, inkColor.b);
+  // Apply ribbon ink colour — per-character when charRibbons is available,
+  // otherwise uniform using the fallback ribbon key.
+  const fallbackColor = ribbonToPdfColor(options.ribbon);
+  pdf.setTextColor(fallbackColor.r, fallbackColor.g, fallbackColor.b);
+
+  const charRibbons = options.charRibbons;
 
   doc.pages.forEach((page, pageIndex) => {
     if (pageIndex > 0) {
       pdf.addPage([spec.paper.width, spec.paper.height], 'portrait');
       pdf.setFont(calibration.fontFamily, calibration.fontStyle);
       pdf.setFontSize(calibration.fontSize);
-      pdf.setTextColor(inkColor.r, inkColor.g, inkColor.b);
+      pdf.setTextColor(fallbackColor.r, fallbackColor.g, fallbackColor.b);
     }
 
     page.lines.forEach((line, lineIndex) => {
       const x = spec.marginLeft;
       const y = spec.marginTop + lineIndex * metrics.lineHeight;
-      drawLine(pdf, line, x, y, calibration.charCellWidth);
+      drawLine(pdf, line, x, y, calibration.charCellWidth, charRibbons, fallbackColor);
     });
   });
 

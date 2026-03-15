@@ -25,6 +25,7 @@ export default function App() {
 
   const paperRef = useRef<HTMLDivElement>(null);
   const latestDocRef = useRef<DocumentModel | null>(null);
+  const charRibbonsRef = useRef<string[]>([]);
 
   useEffect(() => {
     const unsubscribe = audioEngine.onStatusChange(setAudioStatus);
@@ -59,7 +60,11 @@ export default function App() {
     if (!latestDocRef.current) return;
 
     try {
-      await exportDocumentToPdf(latestDocRef.current, { modelKey: model, ribbon });
+      await exportDocumentToPdf(latestDocRef.current, {
+        modelKey: model,
+        ribbon,
+        charRibbons: charRibbonsRef.current,
+      });
     } catch (err) {
       console.error('Failed to export PDF', err);
     }
@@ -96,6 +101,9 @@ export default function App() {
         paperRef={paperRef}
         onDocumentModelChange={(doc) => {
           latestDocRef.current = doc;
+        }}
+        onCharFormatsChange={(ribbons) => {
+          charRibbonsRef.current = ribbons;
         }}
       />
     </div>

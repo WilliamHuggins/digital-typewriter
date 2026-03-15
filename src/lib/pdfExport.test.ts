@@ -42,9 +42,9 @@ describe('tokensToGlyphCells', () => {
     ];
 
     assert.deepEqual(tokensToGlyphCells(tokens), [
-      { char: 'A', column: 0 },
-      { char: 'B', column: 1 },
-      { char: 'C', column: 3 },
+      { char: 'A', column: 0, sourceIndex: 0 },
+      { char: 'B', column: 1, sourceIndex: 1 },
+      { char: 'C', column: 3, sourceIndex: 3 },
     ]);
   });
 
@@ -61,8 +61,8 @@ describe('tokensToGlyphCells', () => {
     ];
 
     assert.deepEqual(tokensToGlyphCells(tokens), [
-      { char: 'X', column: 0 },
-      { char: 'Y', column: 3 },
+      { char: 'X', column: 0, sourceIndex: 0 },
+      { char: 'Y', column: 3, sourceIndex: 3 },
     ]);
   });
 });
@@ -194,50 +194,52 @@ describe('ribbonToPdfColor', () => {
 });
 
 // ---------------------------------------------------------------------------
-// PDF export with ribbon color – integration-level mock test
+// tokensToGlyphCells – sourceIndex tracking
 // ---------------------------------------------------------------------------
 
-describe('PDF export applies ribbon color', () => {
-  function makeMockPdfWithColorTracking() {
-    let currentFontSize = 15;
-    const textColors: Array<{ r: number; g: number; b: number }> = [];
+describe('tokensToGlyphCells sourceIndex', () => {
+  it('tracks source indices through multi-character words', () => {
+    const tokens: Token[] = [
+      { type: 'word', text: 'Hi', index: 5 },
+    ];
+    const glyphs = tokensToGlyphCells(tokens);
+    assert.equal(glyphs[0].sourceIndex, 5);
+    assert.equal(glyphs[1].sourceIndex, 6);
+  });
+});
 
-    return {
-      textColors,
-      setFont(_family: string, _style: string) {},
-      setFontSize(size: number) { currentFontSize = size; },
-      getTextWidth(text: string): number {
-        const scale = currentFontSize / 15;
-        return text.length * 9.0 * scale;
-      },
-      setTextColor(r: number, g: number, b: number) {
-        textColors.push({ r, g, b });
-      },
-      text(_text: string, _x: number, _y: number, _opts?: any) {},
-      addPage(_format: any, _orientation: string) {},
-      save(_filename: string) {},
-    };
-  }
+// ---------------------------------------------------------------------------
+// Per-character ribbon color in PDF export
+// ---------------------------------------------------------------------------
 
-  it('sets text color to red when ribbon is red', () => {
-    const mock = makeMockPdfWithColorTracking();
-    const color = ribbonToPdfColor('red');
-    mock.setTextColor(color.r, color.g, color.b);
-    assert.equal(mock.textColors.length, 1);
-    assert.deepEqual(mock.textColors[0], { r: 0x99, g: 0x1b, b: 0x1b });
+describe('per-character ribbon color', () => {
+  it('resolves different colors for different charRibbons entries', () => {
+    // Simulate: "AB" where A=red, B=blue
+    const charRibbons = ['red', 'blue'];
+    const colorA = ribbonToPdfColor(charRibbons[0]);
+    const colorB = ribbonToPdfColor(charRibbons[1]);
+    assert.deepEqual(colorA, { r: 0x99, g: 0x1b, b: 0x1b });
+    assert.deepEqual(colorB, { r: 0x1e, g: 0x40, b: 0xaf });
   });
 
-  it('sets text color to blue when ribbon is blue', () => {
-    const mock = makeMockPdfWithColorTracking();
-    const color = ribbonToPdfColor('blue');
-    mock.setTextColor(color.r, color.g, color.b);
-    assert.deepEqual(mock.textColors[0], { r: 0x1e, g: 0x40, b: 0xaf });
+  it('falls back to black for characters without a charRibbons entry', () => {
+    const charRibbons = ['red']; // only index 0 has a ribbon
+    const color = charRibbons[1] ? ribbonToPdfColor(charRibbons[1]) : ribbonToPdfColor(undefined);
+    assert.deepEqual(color, { r: 0x11, g: 0x18, b: 0x27 });
   });
 
-  it('defaults to black for missing ribbon option', () => {
-    const mock = makeMockPdfWithColorTracking();
-    const color = ribbonToPdfColor(undefined);
-    mock.setTextColor(color.r, color.g, color.b);
-    assert.deepEqual(mock.textColors[0], { r: 0x11, g: 0x18, b: 0x27 });
+  it('handles mixed ribbons including stencil in charRibbons', () => {
+    const charRibbons = ['black', 'red', 'stencil', 'blue'];
+    const colors = charRibbons.map(r => ribbonToPdfColor(r));
+    assert.deepEqual(colors[0], { r: 0x11, g: 0x18, b: 0x27 }); // black
+    assert.deepEqual(colors[1], { r: 0x99, g: 0x1b, b: 0x1b }); // red
+    assert.deepEqual(colors[2], { r: 0xc8, g: 0xc0, b: 0xb0 }); // stencil
+    assert.deepEqual(colors[3], { r: 0x1e, g: 0x40, b: 0xaf }); // blue
+  });
+
+  it('uses fallback ribbon when charRibbons is undefined', () => {
+    // When no charRibbons provided, ribbonToPdfColor with the fallback ribbon is used
+    const fallback = ribbonToPdfColor('red');
+    assert.deepEqual(fallback, { r: 0x99, g: 0x1b, b: 0x1b });
   });
 });

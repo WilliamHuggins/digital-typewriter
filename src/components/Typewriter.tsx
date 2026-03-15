@@ -46,6 +46,7 @@ interface TypewriterProps {
   customMargins: CustomMargins;
   paperRef: React.RefObject<HTMLDivElement>;
   onDocumentModelChange?: (doc: DocumentModel) => void;
+  onCharFormatsChange?: (ribbons: string[]) => void;
   disableBackspaceDelete: boolean;
 }
 
@@ -66,7 +67,7 @@ interface MechanicalMotionState {
   machineOffsetY: number;
 }
 
-export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, lineSpacing, paperSize, marginPreset, customMargins, paperRef, onDocumentModelChange, disableBackspaceDelete }: TypewriterProps) {
+export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, lineSpacing, paperSize, marginPreset, customMargins, paperRef, onDocumentModelChange, onCharFormatsChange, disableBackspaceDelete }: TypewriterProps) {
   const [text, setText] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [cursorPos, setCursorPos] = useState(0);
@@ -138,6 +139,10 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
   useEffect(() => {
     onDocumentModelChange?.(doc);
   }, [doc, onDocumentModelChange]);
+
+  useEffect(() => {
+    onCharFormatsChange?.(charFormats.map(f => f.ribbon));
+  }, [charFormats, onCharFormatsChange]);
 
   // ---------------------------------------------------------------------------
   // Effects (unchanged behaviour, now uses doc model constants)
