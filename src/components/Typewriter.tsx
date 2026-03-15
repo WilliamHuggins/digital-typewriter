@@ -37,6 +37,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [scale, setScale] = useState(1);
   const containerRef = useRef<HTMLDivElement>(null);
+  const bellArmedRef = useRef(true);
 
   const activeModel = MODELS[model];
   const activeRibbon = RIBBONS[ribbon];
@@ -104,28 +105,58 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
     audioEngine.setVolume(volume);
   }, [volume]);
 
+  useEffect(() => {
+    bellArmedRef.current = true;
+  }, [model]);
+
+  const getLineLengthAtPosition = (source: string, position: number) => {
+    const safePos = Math.max(0, Math.min(position, source.length));
+    const lineStart = source.lastIndexOf('\n', safePos - 1) + 1;
+    const lineEndIndex = source.indexOf('\n', safePos);
+    const lineEnd = lineEndIndex === -1 ? source.length : lineEndIndex;
+    return {
+      currentColumn: safePos - lineStart,
+      lineLength: lineEnd - lineStart
+    };
+  };
+
+  const maybePlayBell = (nextCursorPos: number) => {
+    const { currentColumn, lineLength } = getLineLengthAtPosition(text, nextCursorPos);
+    const { ringAtColumn, resetAtColumn } = audioEngine.getBellColumns(MAX_CHARS_PER_LINE, model);
+    const inBellZone = currentColumn >= ringAtColumn || lineLength >= ringAtColumn;
+    const leftBellZone = currentColumn <= resetAtColumn && lineLength <= resetAtColumn;
+
+    if (leftBellZone) {
+      bellArmedRef.current = true;
+    }
+
+    if (inBellZone && bellArmedRef.current) {
+      audioEngine.playBell(model);
+      bellArmedRef.current = false;
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (!audioEnabled || audioStatus !== 'ready') return;
 
+    const target = e.currentTarget;
+    const nextCursorPos = target.selectionStart + 1;
+
     if (e.key === 'Enter') {
-      audioEngine.playReturn();
+      audioEngine.playReturn(model);
+      bellArmedRef.current = true;
     } else if (e.key === ' ') {
       audioEngine.playKeypress(true, model);
-      
-      // Check for bell
-      const linesBeforeCursor = text.substring(0, cursorPos).split('\n');
-      const currentLineLength = linesBeforeCursor[linesBeforeCursor.length - 1].length;
-      if (currentLineLength === MAX_CHARS_PER_LINE - 5) {
-        audioEngine.playBell();
-      }
+      maybePlayBell(nextCursorPos);
     } else if (e.key.length === 1) {
       audioEngine.playKeypress(false, model);
-      
-      // Check for bell
-      const linesBeforeCursor = text.substring(0, cursorPos).split('\n');
-      const currentLineLength = linesBeforeCursor[linesBeforeCursor.length - 1].length;
-      if (currentLineLength === MAX_CHARS_PER_LINE - 5) {
-        audioEngine.playBell();
+
+      maybePlayBell(nextCursorPos);
+    } else if (e.key === 'Backspace' || e.key === 'Delete' || e.key.startsWith('Arrow')) {
+      const { currentColumn, lineLength } = getLineLengthAtPosition(text, target.selectionStart);
+      const { resetAtColumn } = audioEngine.getBellColumns(MAX_CHARS_PER_LINE, model);
+      if (currentColumn <= resetAtColumn && lineLength <= resetAtColumn) {
+        bellArmedRef.current = true;
       }
     }
   };
