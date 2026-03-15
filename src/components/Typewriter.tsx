@@ -313,10 +313,12 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
       triggerCarriageReturnMotion();
     } else if (e.key === ' ') {
       audioEngine.playKeypress(true, model);
+      audioEngine.playRibbon(model);
       maybePlayBell(nextCursorPos);
       triggerTypingMotion();
     } else if (e.key.length === 1) {
       audioEngine.playKeypress(false, model);
+      audioEngine.playRibbon(model);
 
       maybePlayBell(nextCursorPos);
       triggerTypingMotion();
