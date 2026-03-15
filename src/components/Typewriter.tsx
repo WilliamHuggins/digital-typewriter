@@ -2,6 +2,11 @@ import React, { useRef, useEffect, useState } from 'react';
 import { cn, pseudoRandom } from '../lib/utils';
 import { MODELS, RIBBONS } from './Toolbar';
 import { type AudioStatus, audioEngine } from '../lib/audio';
+import {
+  canApplyTextWithinMaxColumns,
+  evaluateBellState,
+  shouldRearmBellAfterCursorOrEdit
+} from '../lib/carriageModel';
 
 interface TypewriterProps {
   model: keyof typeof MODELS;
@@ -109,31 +114,19 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
     bellArmedRef.current = true;
   }, [model]);
 
-  const getLineLengthAtPosition = (source: string, position: number) => {
-    const safePos = Math.max(0, Math.min(position, source.length));
-    const lineStart = source.lastIndexOf('\n', safePos - 1) + 1;
-    const lineEndIndex = source.indexOf('\n', safePos);
-    const lineEnd = lineEndIndex === -1 ? source.length : lineEndIndex;
-    return {
-      currentColumn: safePos - lineStart,
-      lineLength: lineEnd - lineStart
-    };
-  };
-
   const maybePlayBell = (nextCursorPos: number) => {
-    const { currentColumn, lineLength } = getLineLengthAtPosition(text, nextCursorPos);
-    const { ringAtColumn, resetAtColumn } = audioEngine.getBellColumns(MAX_CHARS_PER_LINE, model);
-    const inBellZone = currentColumn >= ringAtColumn || lineLength >= ringAtColumn;
-    const leftBellZone = currentColumn <= resetAtColumn && lineLength <= resetAtColumn;
+    const bellState = evaluateBellState(
+      text,
+      nextCursorPos,
+      bellArmedRef.current,
+      audioEngine.getBellColumns(MAX_CHARS_PER_LINE, model)
+    );
 
-    if (leftBellZone) {
-      bellArmedRef.current = true;
-    }
-
-    if (inBellZone && bellArmedRef.current) {
+    if (bellState.shouldRing) {
       audioEngine.playBell(model);
-      bellArmedRef.current = false;
     }
+
+    bellArmedRef.current = bellState.bellArmed;
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -153,9 +146,13 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
 
       maybePlayBell(nextCursorPos);
     } else if (e.key === 'Backspace' || e.key === 'Delete' || e.key.startsWith('Arrow')) {
-      const { currentColumn, lineLength } = getLineLengthAtPosition(text, target.selectionStart);
-      const { resetAtColumn } = audioEngine.getBellColumns(MAX_CHARS_PER_LINE, model);
-      if (currentColumn <= resetAtColumn && lineLength <= resetAtColumn) {
+      if (
+        shouldRearmBellAfterCursorOrEdit(
+          text,
+          target.selectionStart,
+          audioEngine.getBellColumns(MAX_CHARS_PER_LINE, model)
+        )
+      ) {
         bellArmedRef.current = true;
       }
     }
@@ -166,8 +163,7 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
     const target = e.target;
     
     // Enforce max characters per line
-    const lines = newText.split('\n');
-    if (lines.some(line => line.length > MAX_CHARS_PER_LINE)) {
+    if (!canApplyTextWithinMaxColumns(newText, MAX_CHARS_PER_LINE)) {
       return; // Reject the change
     }
     
