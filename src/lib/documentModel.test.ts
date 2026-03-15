@@ -6,6 +6,7 @@ import {
   locateCursor,
   cursorColumn,
   computeScrollPosition,
+  computeMarginGuideGeometry,
   DEFAULT_PAGE_SPEC,
   PAPER_SIZES,
   TYPING_OFFSET_Y,
@@ -158,6 +159,22 @@ test('computeScrollPosition page 1 accounts for page gap', () => {
   const pageOffset = 1 * (DEFAULT_PAGE_SPEC.paper.height + PAGE_GAP);
   const expected = TYPING_OFFSET_Y - (pageOffset + DEFAULT_PAGE_SPEC.marginTop);
   assert.equal(scroll.transformY, expected);
+});
+
+// ---------------------------------------------------------------------------
+// computeMarginGuideGeometry
+// ---------------------------------------------------------------------------
+
+test('computeMarginGuideGeometry mirrors spec margins and derived content size', () => {
+  const geometry = computeMarginGuideGeometry(DEFAULT_PAGE_SPEC);
+  const metrics = computeMetrics(DEFAULT_PAGE_SPEC);
+
+  assert.equal(geometry.top, DEFAULT_PAGE_SPEC.marginTop);
+  assert.equal(geometry.right, DEFAULT_PAGE_SPEC.marginRight);
+  assert.equal(geometry.bottom, DEFAULT_PAGE_SPEC.marginBottom);
+  assert.equal(geometry.left, DEFAULT_PAGE_SPEC.marginLeft);
+  assert.equal(geometry.contentWidth, metrics.contentWidth);
+  assert.equal(geometry.contentHeight, metrics.contentHeight);
 });
 
 // ---------------------------------------------------------------------------

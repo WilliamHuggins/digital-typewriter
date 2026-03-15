@@ -336,6 +336,31 @@ export interface ScrollPosition {
   transformY: number;
 }
 
+export interface MarginGuideGeometry {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+  contentWidth: number;
+  contentHeight: number;
+}
+
+/**
+ * Geometry for rendering margin guides directly from the active page spec.
+ */
+export function computeMarginGuideGeometry(spec: PageSpec): MarginGuideGeometry {
+  const metrics = computeMetrics(spec);
+
+  return {
+    top: spec.marginTop,
+    right: spec.marginRight,
+    bottom: spec.marginBottom,
+    left: spec.marginLeft,
+    contentWidth: metrics.contentWidth,
+    contentHeight: metrics.contentHeight,
+  };
+}
+
 export function computeScrollPosition(
   doc: DocumentModel,
   activePageIdx: number,
