@@ -165,6 +165,59 @@ export function calculatePdfGlyphJitter(
   return { dx, dy };
 }
 
+// ---------------------------------------------------------------------------
+// Per-line vertical wobble for PDF export
+// ---------------------------------------------------------------------------
+
+/**
+ * Deterministic per-line vertical offset applied during PDF export to simulate
+ * the slight mechanical unevenness of a typewriter's line-feed mechanism.
+ *
+ * Uses the same seeding pattern as the on-screen renderer in Typewriter.tsx:
+ *   seed = (pageIndex + 1) * 7000 + lineIndex
+ *
+ * On screen the max offset is ±0.375 px (wearLevel * 0.75 / 2). For PDF we
+ * use a slightly smaller magnitude (MAX_PDF_LINE_WOBBLE_Y = 0.3 px) since
+ * PDF is a permanent artifact and must stay highly readable.
+ *
+ * The offset is clamped to ±MAX_PDF_LINE_WOBBLE_Y regardless of inputs,
+ * ensuring adjacent lines never collide.
+ */
+
+/** Maximum per-line y-offset in px (at wearLevel = 1). */
+export const MAX_PDF_LINE_WOBBLE_Y = 0.3;
+
+/** Seed multiplier matching the on-screen line wobble in Typewriter.tsx. */
+const LINE_WOBBLE_PAGE_MULTIPLIER = 7000;
+
+export interface PdfLineWobble {
+  /** Vertical offset in px (positive = down, negative = up). */
+  dy: number;
+}
+
+/**
+ * Compute a deterministic vertical offset for a single line.
+ *
+ * @param pageIndex  - Zero-based page index within the document.
+ * @param lineIndex  - Zero-based line index within the page.
+ * @param wearLevel  - 0‥1 wear multiplier. 0 = no wobble, 1 = full wobble.
+ *                     Matches the `wearLevel` semantic used on screen.
+ */
+export function calculatePdfLineWobble(
+  pageIndex: number,
+  lineIndex: number,
+  wearLevel: number,
+): PdfLineWobble {
+  if (wearLevel <= 0) return { dy: 0 };
+
+  // Same seed as Typewriter.tsx on-screen line wobble
+  const seed = (pageIndex + 1) * LINE_WOBBLE_PAGE_MULTIPLIER + lineIndex;
+  const raw = (pseudoRandom(seed) - 0.5) * 2; // −1 … +1
+  const dy = clamp(raw * MAX_PDF_LINE_WOBBLE_Y * wearLevel, -MAX_PDF_LINE_WOBBLE_Y, MAX_PDF_LINE_WOBBLE_Y);
+
+  return { dy };
+}
+
 export function computeCalibratedFontSize(baseFontSize: number, measuredCharWidth: number, targetCharWidth: number): number {
   if (measuredCharWidth <= 0 || targetCharWidth <= 0) return baseFontSize;
   const nextSize = (baseFontSize * targetCharWidth) / measuredCharWidth;
@@ -334,7 +387,8 @@ export async function exportDocumentToPdf(
 
     page.lines.forEach((line, lineIndex) => {
       const x = spec.marginLeft;
-      const y = spec.marginTop + lineIndex * metrics.lineHeight;
+      const lineWobble = calculatePdfLineWobble(pageIndex, lineIndex, wearLevel);
+      const y = spec.marginTop + lineIndex * metrics.lineHeight + lineWobble.dy;
       const wearContext = wearState
         ? { baseColor: inkColor, state: wearState, ribbon: ribbonKey, lineIndex: globalLineIndex }
         : undefined;
