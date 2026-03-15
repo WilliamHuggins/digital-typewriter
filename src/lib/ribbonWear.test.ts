@@ -501,3 +501,81 @@ test('chunk ids are reassigned sensibly when explicit newline split and merge oc
   assert.equal(mergedState.chunkCache.chunks.length, 1);
   assert.equal(mergedState.chunkCache.chunks[0].id, initial.chunkCache.chunks[0].id);
 });
+
+test('chunk edit fingerprint evolves deterministically under small edits', () => {
+  const text = 'orchid archive baseline';
+  const initialLedger = buildLineImpressionLedger({
+    text,
+    insertedRange: { start: 0, length: text.length },
+    maxColumns: MAX_COLUMNS,
+  });
+  const initial = incrementRibbonWear(createRibbonWearState('black'), text.length, 'black', initialLedger);
+
+  const editedText = 'orchid archive baseline!';
+  const editedLedger = buildLineImpressionLedger({
+    text: editedText,
+    insertedRange: { start: editedText.length - 1, length: 1 },
+    maxColumns: MAX_COLUMNS,
+  });
+
+  const first = incrementRibbonWear(initial, 1, 'black', editedLedger);
+  const second = incrementRibbonWear(initial, 1, 'black', editedLedger);
+
+  assert.notEqual(first.chunkCache.chunks[0].editFingerprint, initial.chunkCache.chunks[0].editFingerprint);
+  assert.equal(first.chunkCache.chunks[0].editFingerprint, second.chunkCache.chunks[0].editFingerprint);
+  assert.ok(first.chunkCache.chunks[0].recentSignatures.length <= 12);
+});
+
+test('historical chunk fingerprint improves continuity after heavy rewrites', () => {
+  const startText = 'orchid archive baseline\nnebula log baseline';
+  const startLedger = buildLineImpressionLedger({
+    text: startText,
+    insertedRange: { start: 0, length: startText.length },
+    maxColumns: 32,
+  });
+  const startState = incrementRibbonWear(createRibbonWearState('black'), startText.length, 'black', startLedger);
+  const orchidChunkId = startState.chunkCache.chunks[0].id;
+
+  const rewriteText = 'orchid rewrite stage one\ncommon rewrite stage two';
+  const rewriteLedger = buildLineImpressionLedger({
+    text: rewriteText,
+    insertedRange: { start: 0, length: 0 },
+    maxColumns: 32,
+  });
+  const rewritten = incrementRibbonWear(startState, 0, 'black', rewriteLedger);
+
+  const callbackText = 'common rewrite stage two plus\norchid callback appears now';
+  const callbackLedger = buildLineImpressionLedger({
+    text: callbackText,
+    insertedRange: { start: 0, length: 0 },
+    maxColumns: 32,
+  });
+  const callback = incrementRibbonWear(rewritten, 0, 'black', callbackLedger);
+
+  assert.equal(callback.chunkCache.chunks[1].id, orchidChunkId);
+});
+
+test('chunk fingerprint matching gracefully falls back when confidence is weak', () => {
+  const firstText = 'aaaa bbbb cccc\ndddd eeee ffff';
+  const firstLedger = buildLineImpressionLedger({
+    text: firstText,
+    insertedRange: { start: 0, length: firstText.length },
+    maxColumns: 24,
+  });
+  const firstState = incrementRibbonWear(createRibbonWearState('black'), firstText.length, 'black', firstLedger);
+
+  const secondText = 'qqqq rrrr ssss\ntttt uuuu vvvv';
+  const secondLedger = buildLineImpressionLedger({
+    text: secondText,
+    insertedRange: { start: 0, length: 0 },
+    maxColumns: 24,
+  });
+
+  const runA = incrementRibbonWear(firstState, 0, 'black', secondLedger);
+  const runB = incrementRibbonWear(firstState, 0, 'black', secondLedger);
+
+  assert.deepEqual(
+    runA.chunkCache.chunks.map((chunk) => chunk.id),
+    runB.chunkCache.chunks.map((chunk) => chunk.id)
+  );
+});
