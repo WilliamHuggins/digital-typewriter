@@ -59,7 +59,7 @@ export default function App() {
     if (!latestDocRef.current) return;
 
     try {
-      exportDocumentToPdf(latestDocRef.current);
+      await exportDocumentToPdf(latestDocRef.current, { modelKey: model });
     } catch (err) {
       console.error('Failed to export PDF', err);
     }
