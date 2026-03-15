@@ -15,10 +15,18 @@ interface RibbonPersonality {
   wornKeys: Record<string, number>;
 }
 
+export interface LineDescriptor {
+  hash: number;
+  head: string;
+  tail: string;
+  length: number;
+}
+
 export interface RibbonWearState {
   activeRibbon: RibbonKey;
   impressionCount: number;
   lineImpressions: number[];
+  lineDescriptors: LineDescriptor[];
 }
 
 export interface RibbonInkStyle {
@@ -87,6 +95,7 @@ export function createRibbonWearState(ribbon: RibbonKey): RibbonWearState {
     activeRibbon: ribbon,
     impressionCount: 0,
     lineImpressions: [],
+    lineDescriptors: [],
   };
 }
 
@@ -111,11 +120,47 @@ export function buildLineImpressionLedger({
   text: string;
   insertedRange: { start: number; length: number };
   maxColumns: number;
-}): { lineCount: number; addedImpressionsByLine: Map<number, number> } {
+}): { lineCount: number; addedImpressionsByLine: Map<number, number>; lineDescriptors: LineDescriptor[] } {
+  const { lineByCharIndex, lineCount, lineDescriptors } = buildRenderedLineLayout(text, maxColumns);
+  const addedImpressionsByLine = new Map<number, number>();
+  const insertionStart = Math.max(0, insertedRange.start);
+  const insertionEnd = Math.min(text.length, insertionStart + Math.max(0, insertedRange.length));
+
+  for (let i = insertionStart; i < insertionEnd; i++) {
+    const char = text[i];
+    if (char === '\n') {
+      continue;
+    }
+
+    const charLineIndex = lineByCharIndex.get(i);
+    if (charLineIndex === undefined) {
+      continue;
+    }
+
+    addedImpressionsByLine.set(charLineIndex, (addedImpressionsByLine.get(charLineIndex) ?? 0) + 1);
+  }
+
+  return {
+    lineCount,
+    addedImpressionsByLine,
+    lineDescriptors,
+  };
+}
+
+function buildRenderedLineLayout(text: string, maxColumns: number): {
+  lineByCharIndex: Map<number, number>;
+  lineCount: number;
+  lineDescriptors: LineDescriptor[];
+} {
   const safeColumns = Math.max(1, maxColumns);
   const lineByCharIndex = new Map<number, number>();
+  const lineContentByIndex = new Map<number, string>();
   let lineIndex = 0;
   let currentLineLength = 0;
+
+  const appendChar = (targetLineIndex: number, char: string) => {
+    lineContentByIndex.set(targetLineIndex, (lineContentByIndex.get(targetLineIndex) ?? '') + char);
+  };
 
   for (let i = 0; i < text.length; i++) {
     const char = text[i];
@@ -129,6 +174,7 @@ export function buildLineImpressionLedger({
 
     if (char === ' ') {
       lineByCharIndex.set(i, lineIndex);
+      appendChar(lineIndex, ' ');
       if (currentLineLength + 1 <= safeColumns) {
         currentLineLength += 1;
       } else {
@@ -151,41 +197,139 @@ export function buildLineImpressionLedger({
 
     for (let wordIndex = i; wordIndex < wordEnd; wordIndex++) {
       lineByCharIndex.set(wordIndex, lineIndex);
+      appendChar(lineIndex, text[wordIndex]);
     }
 
     currentLineLength += wordLength;
     i = wordEnd - 1;
   }
 
-  const addedImpressionsByLine = new Map<number, number>();
-  const insertionStart = Math.max(0, insertedRange.start);
-  const insertionEnd = Math.min(text.length, insertionStart + Math.max(0, insertedRange.length));
-
-  for (let i = insertionStart; i < insertionEnd; i++) {
-    const char = text[i];
-    if (char === '\n') {
-      continue;
-    }
-
-    const charLineIndex = lineByCharIndex.get(i);
-    if (charLineIndex === undefined) {
-      continue;
-    }
-
-    addedImpressionsByLine.set(charLineIndex, (addedImpressionsByLine.get(charLineIndex) ?? 0) + 1);
-  }
+  const lineCount = lineIndex + 1;
+  const lineDescriptors = Array.from(
+    { length: lineCount },
+    (_, index) => toLineDescriptor(lineContentByIndex.get(index) ?? '')
+  );
 
   return {
-    lineCount: lineIndex + 1,
-    addedImpressionsByLine,
+    lineByCharIndex,
+    lineCount,
+    lineDescriptors,
   };
+}
+
+function toLineDescriptor(lineText: string): LineDescriptor {
+  const normalized = lineText.trim();
+  return {
+    hash: hashText(normalized),
+    head: normalized.slice(0, 16),
+    tail: normalized.slice(-16),
+    length: normalized.length,
+  };
+}
+
+function hashText(text: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+export function stabilizeLineImpressions({
+  previousImpressions,
+  previousLineDescriptors,
+  nextLineDescriptors,
+}: {
+  previousImpressions: number[];
+  previousLineDescriptors: LineDescriptor[];
+  nextLineDescriptors: LineDescriptor[];
+}): number[] {
+  if (nextLineDescriptors.length === 0) {
+    return [];
+  }
+
+  const naive = clampToLineCount(previousImpressions, nextLineDescriptors.length);
+  if (previousLineDescriptors.length === 0) {
+    return naive;
+  }
+
+  const remapped = Array.from({ length: nextLineDescriptors.length }, () => 0);
+  const takenPrevious = new Set<number>();
+  const matchedNext = new Set<number>();
+  const searchRadius = 4;
+
+  for (let nextIndex = 0; nextIndex < nextLineDescriptors.length; nextIndex++) {
+    const nextLine = nextLineDescriptors[nextIndex];
+    let bestPreviousIndex = -1;
+    let bestScore = Number.NEGATIVE_INFINITY;
+
+    const start = Math.max(0, nextIndex - searchRadius);
+    const end = Math.min(previousLineDescriptors.length - 1, nextIndex + searchRadius);
+    for (let previousIndex = start; previousIndex <= end; previousIndex++) {
+      if (takenPrevious.has(previousIndex)) {
+        continue;
+      }
+
+      const score = scoreLineSimilarity(previousLineDescriptors[previousIndex], nextLine, Math.abs(previousIndex - nextIndex));
+      if (score > bestScore) {
+        bestScore = score;
+        bestPreviousIndex = previousIndex;
+      }
+    }
+
+    if (bestPreviousIndex !== -1 && bestScore >= 3) {
+      remapped[nextIndex] = previousImpressions[bestPreviousIndex] ?? 0;
+      takenPrevious.add(bestPreviousIndex);
+      matchedNext.add(nextIndex);
+    }
+  }
+
+  for (let nextIndex = 0; nextIndex < nextLineDescriptors.length; nextIndex++) {
+    if (matchedNext.has(nextIndex)) {
+      continue;
+    }
+
+    if (!takenPrevious.has(nextIndex)) {
+      remapped[nextIndex] = naive[nextIndex] ?? 0;
+    }
+  }
+
+  return remapped;
+}
+
+function scoreLineSimilarity(previousLine: LineDescriptor, nextLine: LineDescriptor, indexDistance: number): number {
+  const prefixMatches = sharedPrefixLength(previousLine.head, nextLine.head);
+  const suffixMatches = sharedSuffixLength(previousLine.tail, nextLine.tail);
+  const hashBonus = previousLine.hash === nextLine.hash ? 8 : 0;
+  const lengthPenalty = Math.abs(previousLine.length - nextLine.length) * 0.35;
+  const indexPenalty = indexDistance * 0.75;
+  return hashBonus + prefixMatches * 0.6 + suffixMatches * 0.45 - lengthPenalty - indexPenalty;
+}
+
+function sharedPrefixLength(a: string, b: string): number {
+  const length = Math.min(a.length, b.length);
+  let matches = 0;
+  while (matches < length && a[matches] === b[matches]) {
+    matches += 1;
+  }
+  return matches;
+}
+
+function sharedSuffixLength(a: string, b: string): number {
+  const length = Math.min(a.length, b.length);
+  let matches = 0;
+  while (matches < length && a[a.length - 1 - matches] === b[b.length - 1 - matches]) {
+    matches += 1;
+  }
+  return matches;
 }
 
 export function incrementRibbonWear(
   current: RibbonWearState,
   insertedChars: number,
   activeRibbon: RibbonKey,
-  lineLedger?: { lineCount: number; addedImpressionsByLine: Map<number, number> }
+  lineLedger?: { lineCount: number; addedImpressionsByLine: Map<number, number>; lineDescriptors: LineDescriptor[] }
 ): RibbonWearState {
   const safeInsertions = Math.max(0, insertedChars);
   const nextLineCount = lineLedger?.lineCount ?? current.lineImpressions.length;
@@ -202,10 +346,18 @@ export function incrementRibbonWear(
       activeRibbon,
       impressionCount: safeInsertions,
       lineImpressions: nextLineImpressions,
+      lineDescriptors: lineLedger?.lineDescriptors ?? [],
     };
   }
 
-  const nextLineImpressions = clampToLineCount(current.lineImpressions, nextLineCount);
+  const nextLineImpressions = lineLedger
+    ? stabilizeLineImpressions({
+      previousImpressions: current.lineImpressions,
+      previousLineDescriptors: current.lineDescriptors,
+      nextLineDescriptors: lineLedger.lineDescriptors,
+    })
+    : clampToLineCount(current.lineImpressions, nextLineCount);
+
   if (lineLedger) {
     for (const [lineIndex, addedImpressions] of lineLedger.addedImpressionsByLine.entries()) {
       nextLineImpressions[lineIndex] = (nextLineImpressions[lineIndex] ?? 0) + addedImpressions;
@@ -216,6 +368,7 @@ export function incrementRibbonWear(
     ...current,
     impressionCount: current.impressionCount + safeInsertions,
     lineImpressions: nextLineImpressions,
+    lineDescriptors: lineLedger?.lineDescriptors ?? current.lineDescriptors.slice(0, nextLineCount),
   };
 }
 
