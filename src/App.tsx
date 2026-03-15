@@ -9,8 +9,8 @@ import { exportDocumentToPdf } from './lib/pdfExport';
 export default function App() {
   const [model, setModel] = useState<keyof typeof MODELS>('remington');
   const [ribbon, setRibbon] = useState<keyof typeof RIBBONS>('black');
-  const [volume, setVolume] = useState(0.5);
-  const [audioEnabled, setAudioEnabled] = useState(false);
+  const [volume, setVolume] = useState(0.8);
+  const [audioEnabled, setAudioEnabled] = useState(true);
   const [audioStatus, setAudioStatus] = useState<AudioStatus>('off');
   const [lineSpacing, setLineSpacing] = useState<number>(1);
   const [paperSize, setPaperSize] = useState<PaperSizeKey>('letter');
