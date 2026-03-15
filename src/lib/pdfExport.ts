@@ -127,13 +127,20 @@ export function tokensToGlyphCells(tokens: Token[]): GlyphCell[] {
   return glyphs;
 }
 
+/** Thickness of the simulated underline stroke in px. */
+const PDF_UNDERLINE_THICKNESS = 0.8;
+/** Offset below the text baseline for the underline stroke. */
+const PDF_UNDERLINE_OFFSET = 2;
+
 function drawLine(
   pdf: jsPDF,
   line: DocLine,
   x: number,
   y: number,
   charCellWidth: number,
+  fontSize: number,
   charRibbons: string[] | undefined,
+  charEmphasis: CharEmphasisEntry[] | undefined,
   fallbackColor: PdfRgbColor,
 ) {
   const glyphs = tokensToGlyphCells(line.tokens);
@@ -142,6 +149,7 @@ function drawLine(
   let activeColor = fallbackColor;
 
   glyphs.forEach(({ char, column, sourceIndex }) => {
+    // Resolve per-character color
     if (charRibbons) {
       const ribbonKey = charRibbons[sourceIndex];
       const color = ribbonKey ? ribbonToPdfColor(ribbonKey) : fallbackColor;
@@ -150,8 +158,37 @@ function drawLine(
         activeColor = color;
       }
     }
-    pdf.text(char, x + column * charCellWidth, y, { baseline: 'top' });
+
+    const glyphX = x + column * charCellWidth;
+
+    // Render the character — overstrike (strikeCount > 1) adds a second
+    // pass with a slight offset to simulate typewriter bold.
+    const emphasis = charEmphasis?.[sourceIndex];
+    const isBold = emphasis && emphasis.strikeCount > 1;
+
+    pdf.text(char, glyphX, y, { baseline: 'top' });
+
+    if (isBold) {
+      // Second strike slightly offset, mimicking a mechanical re-strike
+      pdf.text(char, glyphX + 0.4, y, { baseline: 'top' });
+    }
+
+    // Draw underline
+    if (emphasis?.underline) {
+      const underlineY = y + fontSize + PDF_UNDERLINE_OFFSET;
+      pdf.setDrawColor(activeColor.r, activeColor.g, activeColor.b);
+      pdf.setLineWidth(PDF_UNDERLINE_THICKNESS);
+      pdf.line(glyphX, underlineY, glyphX + charCellWidth, underlineY);
+    }
   });
+}
+
+/** Per-character emphasis data mirroring the on-screen typewriter effects. */
+export interface CharEmphasisEntry {
+  /** Number of times the character was struck (1 = normal, >1 = bold). */
+  strikeCount: number;
+  /** Whether the character has been underlined. */
+  underline: boolean;
 }
 
 export interface PdfExportOptions {
@@ -166,6 +203,9 @@ export interface PdfExportOptions {
    *  When provided, each glyph is rendered in the colour of the ribbon
    *  that was active when it was typed, enabling multi-colour export. */
   charRibbons?: string[];
+  /** Per-character emphasis data indexed by source-text position.
+   *  When provided, overstrikes render as bold and underlines are drawn. */
+  charEmphasis?: CharEmphasisEntry[];
 }
 
 /**
@@ -195,7 +235,7 @@ export async function exportDocumentToPdf(
   const fallbackColor = ribbonToPdfColor(options.ribbon);
   pdf.setTextColor(fallbackColor.r, fallbackColor.g, fallbackColor.b);
 
-  const charRibbons = options.charRibbons;
+  const { charRibbons, charEmphasis } = options;
 
   doc.pages.forEach((page, pageIndex) => {
     if (pageIndex > 0) {
@@ -208,7 +248,7 @@ export async function exportDocumentToPdf(
     page.lines.forEach((line, lineIndex) => {
       const x = spec.marginLeft;
       const y = spec.marginTop + lineIndex * metrics.lineHeight;
-      drawLine(pdf, line, x, y, calibration.charCellWidth, charRibbons, fallbackColor);
+      drawLine(pdf, line, x, y, calibration.charCellWidth, calibration.fontSize, charRibbons, charEmphasis, fallbackColor);
     });
   });
 

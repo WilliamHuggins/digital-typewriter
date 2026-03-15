@@ -46,7 +46,7 @@ interface TypewriterProps {
   customMargins: CustomMargins;
   paperRef: React.RefObject<HTMLDivElement>;
   onDocumentModelChange?: (doc: DocumentModel) => void;
-  onCharFormatsChange?: (ribbons: string[]) => void;
+  onExportDataChange?: (data: { charRibbons: string[]; charEmphasis: Array<{ strikeCount: number; underline: boolean }> }) => void;
   disableBackspaceDelete: boolean;
 }
 
@@ -67,7 +67,7 @@ interface MechanicalMotionState {
   machineOffsetY: number;
 }
 
-export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, lineSpacing, paperSize, marginPreset, customMargins, paperRef, onDocumentModelChange, onCharFormatsChange, disableBackspaceDelete }: TypewriterProps) {
+export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, lineSpacing, paperSize, marginPreset, customMargins, paperRef, onDocumentModelChange, onExportDataChange, disableBackspaceDelete }: TypewriterProps) {
   const [text, setText] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [cursorPos, setCursorPos] = useState(0);
@@ -141,8 +141,11 @@ export function Typewriter({ model, ribbon, audioEnabled, audioStatus, volume, l
   }, [doc, onDocumentModelChange]);
 
   useEffect(() => {
-    onCharFormatsChange?.(charFormats.map(f => f.ribbon));
-  }, [charFormats, onCharFormatsChange]);
+    onExportDataChange?.({
+      charRibbons: charFormats.map(f => f.ribbon),
+      charEmphasis: charEmphasis.map(e => ({ strikeCount: e.strikeCount, underline: e.underline })),
+    });
+  }, [charFormats, charEmphasis, onExportDataChange]);
 
   // ---------------------------------------------------------------------------
   // Effects (unchanged behaviour, now uses doc model constants)

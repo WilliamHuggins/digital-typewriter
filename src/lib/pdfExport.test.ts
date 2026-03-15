@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Token } from './documentModel';
-import { computeCalibratedFontSize, tokensToGlyphCells, calibratePdfFont, ribbonToPdfColor, type PdfFontCalibration, type PdfRgbColor } from './pdfExport';
+import { computeCalibratedFontSize, tokensToGlyphCells, calibratePdfFont, ribbonToPdfColor, type PdfFontCalibration, type PdfRgbColor, type CharEmphasisEntry } from './pdfExport';
 import { COURIER_FONT, type PdfFontDef } from './pdfFonts';
 
 // ---------------------------------------------------------------------------
@@ -241,5 +241,73 @@ describe('per-character ribbon color', () => {
     // When no charRibbons provided, ribbonToPdfColor with the fallback ribbon is used
     const fallback = ribbonToPdfColor('red');
     assert.deepEqual(fallback, { r: 0x99, g: 0x1b, b: 0x1b });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CharEmphasisEntry – overstrike and underline data structure
+// ---------------------------------------------------------------------------
+
+describe('CharEmphasisEntry', () => {
+  it('default emphasis has strikeCount 1 and no underline', () => {
+    const entry: CharEmphasisEntry = { strikeCount: 1, underline: false };
+    assert.equal(entry.strikeCount, 1);
+    assert.equal(entry.underline, false);
+  });
+
+  it('overstrike entry has strikeCount > 1', () => {
+    const entry: CharEmphasisEntry = { strikeCount: 3, underline: false };
+    assert.ok(entry.strikeCount > 1, 'should be treated as bold');
+  });
+
+  it('underline entry has underline true', () => {
+    const entry: CharEmphasisEntry = { strikeCount: 1, underline: true };
+    assert.equal(entry.underline, true);
+  });
+
+  it('can combine overstrike and underline on same character', () => {
+    const entry: CharEmphasisEntry = { strikeCount: 2, underline: true };
+    assert.ok(entry.strikeCount > 1, 'should be bold');
+    assert.equal(entry.underline, true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-character emphasis array indexing via sourceIndex
+// ---------------------------------------------------------------------------
+
+describe('charEmphasis indexed by sourceIndex', () => {
+  it('maps emphasis to the correct character via token sourceIndex', () => {
+    // "AB C" → charEmphasis array: [bold-A, normal-B, space, underline-C]
+    const charEmphasis: CharEmphasisEntry[] = [
+      { strikeCount: 2, underline: false },  // A at index 0
+      { strikeCount: 1, underline: false },  // B at index 1
+      { strikeCount: 1, underline: false },  // space at index 2
+      { strikeCount: 1, underline: true },   // C at index 3
+    ];
+    const tokens: Token[] = [
+      { type: 'word', text: 'AB', index: 0 },
+      { type: 'space', index: 2 },
+      { type: 'word', text: 'C', index: 3 },
+    ];
+    const glyphs = tokensToGlyphCells(tokens);
+
+    // Glyph A at sourceIndex 0 → bold
+    assert.equal(glyphs[0].sourceIndex, 0);
+    assert.ok(charEmphasis[glyphs[0].sourceIndex].strikeCount > 1);
+
+    // Glyph B at sourceIndex 1 → normal
+    assert.equal(glyphs[1].sourceIndex, 1);
+    assert.equal(charEmphasis[glyphs[1].sourceIndex].strikeCount, 1);
+
+    // Glyph C at sourceIndex 3 → underline
+    assert.equal(glyphs[2].sourceIndex, 3);
+    assert.equal(charEmphasis[glyphs[2].sourceIndex].underline, true);
+  });
+
+  it('gracefully handles missing emphasis entries', () => {
+    const charEmphasis: CharEmphasisEntry[] = [];
+    const entry = charEmphasis[5]; // out of bounds
+    assert.equal(entry, undefined);
   });
 });

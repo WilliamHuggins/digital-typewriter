@@ -4,7 +4,7 @@ import { Toolbar, MODELS, RIBBONS } from './components/Toolbar';
 import { Typewriter } from './components/Typewriter';
 import { audioEngine, type AudioStatus } from './lib/audio';
 import { type PaperSizeKey, type MarginPresetKey, type CustomMargins, type DocumentModel } from './lib/documentModel';
-import { exportDocumentToPdf } from './lib/pdfExport';
+import { exportDocumentToPdf, type CharEmphasisEntry } from './lib/pdfExport';
 
 export default function App() {
   const [model, setModel] = useState<keyof typeof MODELS>('remington');
@@ -26,6 +26,7 @@ export default function App() {
   const paperRef = useRef<HTMLDivElement>(null);
   const latestDocRef = useRef<DocumentModel | null>(null);
   const charRibbonsRef = useRef<string[]>([]);
+  const charEmphasisRef = useRef<CharEmphasisEntry[]>([]);
 
   useEffect(() => {
     const unsubscribe = audioEngine.onStatusChange(setAudioStatus);
@@ -64,6 +65,7 @@ export default function App() {
         modelKey: model,
         ribbon,
         charRibbons: charRibbonsRef.current,
+        charEmphasis: charEmphasisRef.current,
       });
     } catch (err) {
       console.error('Failed to export PDF', err);
@@ -102,8 +104,9 @@ export default function App() {
         onDocumentModelChange={(doc) => {
           latestDocRef.current = doc;
         }}
-        onCharFormatsChange={(ribbons) => {
-          charRibbonsRef.current = ribbons;
+        onExportDataChange={({ charRibbons, charEmphasis }) => {
+          charRibbonsRef.current = charRibbons;
+          charEmphasisRef.current = charEmphasis;
         }}
       />
     </div>
