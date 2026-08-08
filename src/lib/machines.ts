@@ -125,10 +125,11 @@ export const RIBBONS = {
 
 export type RibbonKey = keyof typeof RIBBONS;
 
+// The control is already labelled "Ribbon", so the value does not repeat it.
 export const RIBBON_LABELS: Record<RibbonKey, string> = {
-  black: 'Black Ribbon',
-  red: 'Red Ribbon',
-  blue: 'Blue Ribbon',
+  black: 'Black',
+  red: 'Red',
+  blue: 'Blue',
   stencil: 'Stencil',
 };
 
@@ -187,7 +188,7 @@ export interface ChassisDef {
 export const CHASSIS: Record<ModelKey, ChassisDef> = {
   remington: {
     body: '#2f2c28',
-    bodyShade: '#17151300',
+    bodyShade: '#171513',
     bodyHighlight: '#4a4640',
     platen: '#3a352f',
     knob: '#221f1c',

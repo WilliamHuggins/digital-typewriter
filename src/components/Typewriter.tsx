@@ -3,6 +3,7 @@ import type { ResponsiveTier } from '../lib/responsive';
 import { cn, pseudoRandom } from '../lib/utils';
 import { MODELS, RIBBONS, DEFAULT_EMPHASIS, typeMetricsFor, MODEL_FONT_STACKS, type CharEmphasis, type CharFormat } from '../lib/machines';
 import { MachineChassis } from './MachineChassis';
+import { MarginRuler } from './MarginRuler';
 import { useTypePitch } from '../hooks/useTypePitch';
 import type { TypewriterDocument } from '../hooks/useTypewriterDocument';
 import { classifyKey, type EditKind } from '../lib/history';
@@ -53,6 +54,8 @@ interface TypewriterProps {
   marginPreset: MarginPresetKey;
   customMargins: CustomMargins;
   paperRef: React.RefObject<HTMLDivElement>;
+  /** Applied when the writer drags a margin stop along the scale */
+  onMarginStopsChange: (next: { marginLeft: number; marginRight: number }) => void;
   onDocumentModelChange?: (doc: DocumentModel) => void;
   onRibbonWearChange?: (state: import('../lib/ribbonWear').RibbonWearState) => void;
   disableBackspaceDelete: boolean;
@@ -65,7 +68,7 @@ interface MechanicalMotionState {
   machineOffsetY: number;
 }
 
-export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentState, model, ribbon, audioEnabled, audioStatus, volume, lineSpacing, paperSize, marginPreset, customMargins, paperRef, onDocumentModelChange, onRibbonWearChange, disableBackspaceDelete }: TypewriterProps) {
+export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentState, model, ribbon, audioEnabled, audioStatus, volume, lineSpacing, paperSize, marginPreset, customMargins, paperRef, onMarginStopsChange, onDocumentModelChange, onRibbonWearChange, disableBackspaceDelete }: TypewriterProps) {
   // The document itself lives in `useTypewriterDocument` so the toolbar can act
   // on it too; these are read-only views onto that state.
   const { text, charFormats, charEmphasis, cursorPos } = documentState;
@@ -1071,6 +1074,24 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentSt
             ))}
           </div>
         </div>
+
+        {/* Margin scale, pinned above the printing line where the machine's
+            own scale sits. Dragging a stop sets the margin directly. */}
+        {!isMobile && (
+          <div
+            className="absolute left-0 z-30 flex w-full justify-center"
+            style={{ top: `${Math.max(6, TYPING_OFFSET_Y - 118)}px` }}
+          >
+            <MarginRuler
+              paper={pageSpec.paper}
+              marginLeft={pageSpec.marginLeft}
+              marginRight={pageSpec.marginRight}
+              charWidth={pageSpec.charWidth}
+              scale={scale}
+              onChange={onMarginStopsChange}
+            />
+          </div>
+        )}
 
         <MachineChassis
           model={model}

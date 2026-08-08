@@ -610,3 +610,223 @@
     border-color: rgba(110, 95, 72, 0.18);
   }
 }
+
+@layer utilities {
+  /* -----------------------------------------------------------------------
+   * Machine controls
+   *
+   * Replaces the row of native <select> elements, which rendered with the
+   * operating system's own chrome and read as a settings form bolted to the
+   * top of a typewriter.
+   * ----------------------------------------------------------------------- */
+
+  .machine-control {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      "icon label chevron"
+      "icon value chevron";
+    align-items: center;
+    column-gap: 8px;
+    width: 100%;
+    padding: 4px 9px 5px;
+    border: 1px solid #3f3f46;
+    border-radius: 3px;
+    background: linear-gradient(180deg, #2c2c31, #232327);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 1px 2px rgba(0, 0, 0, 0.4);
+    color: #e4e4e7;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 120ms ease, background 120ms ease;
+  }
+
+  .machine-control:hover { border-color: #52525b; }
+  .machine-control:focus-visible {
+    outline: none;
+    border-color: #a1a1aa;
+    box-shadow: 0 0 0 2px rgba(161, 161, 170, 0.35);
+  }
+
+  .machine-control-icon {
+    grid-area: icon;
+    display: inline-flex;
+    color: #71717a;
+  }
+
+  .machine-control-label {
+    grid-area: label;
+    font-family: ui-monospace, "Courier Prime", monospace;
+    font-size: 8px;
+    line-height: 1.3;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #71717a;
+    white-space: nowrap;
+  }
+
+  .machine-control-value {
+    grid-area: value;
+    min-width: 0;
+    font-size: 13px;
+    line-height: 1.25;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .machine-control-chevron {
+    grid-area: chevron;
+    color: #71717a;
+    transition: transform 120ms ease;
+  }
+
+  .machine-control-chevron-open { transform: rotate(180deg); }
+
+  .machine-menu {
+    position: absolute;
+    z-index: 50;
+    top: calc(100% + 4px);
+    left: 0;
+    min-width: 100%;
+    max-height: 17rem;
+    overflow-y: auto;
+    margin: 0;
+    padding: 4px;
+    list-style: none;
+    border: 1px solid #3f3f46;
+    border-radius: 3px;
+    background: #1c1c1f;
+    box-shadow: 0 14px 34px -12px rgba(0, 0, 0, 0.85);
+  }
+
+  .machine-menu-item {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 6px 9px;
+    border-radius: 2px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .machine-menu-item-active { background: #2f2f35; }
+
+  .machine-menu-item-selected .machine-menu-label {
+    color: #fafafa;
+    font-weight: 500;
+  }
+
+  .machine-menu-item-selected::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    left: 2px;
+    width: 2px;
+    height: 1.15em;
+    background: #a1a1aa;
+    border-radius: 1px;
+  }
+
+  .machine-menu-label {
+    font-size: 13px;
+    color: #d4d4d8;
+  }
+
+  .machine-menu-detail {
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #71717a;
+  }
+
+  /* -----------------------------------------------------------------------
+   * Margin scale
+   * ----------------------------------------------------------------------- */
+
+  .margin-ruler {
+    pointer-events: auto;
+    user-select: none;
+  }
+
+  .margin-ruler-track {
+    position: relative;
+    height: 16px;
+    border-radius: 2px;
+    background: linear-gradient(180deg, #cdc6b6, #b3ab99);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.5),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.2),
+      0 1px 3px rgba(0, 0, 0, 0.35);
+  }
+
+  /* The stretch outside the stops, where the carriage will not print. */
+  .margin-ruler-dead {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background: rgba(60, 48, 32, 0.22);
+  }
+
+  .margin-ruler-tick {
+    position: absolute;
+    bottom: 0;
+    width: 1px;
+    height: 4px;
+    background: rgba(52, 42, 28, 0.5);
+  }
+
+  .margin-ruler-tick-inch { height: 8px; }
+
+  .margin-ruler-stop {
+    position: absolute;
+    top: -4px;
+    width: 14px;
+    height: 24px;
+    margin-left: -7px;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: ew-resize;
+    touch-action: none;
+  }
+
+  .margin-ruler-stop-tab {
+    position: absolute;
+    inset: 0;
+    border-radius: 2px;
+    background: linear-gradient(180deg, #6d7079, #3d4048);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.35),
+      0 2px 4px rgba(0, 0, 0, 0.5);
+    clip-path: polygon(50% 0, 100% 26%, 100% 100%, 0 100%, 0 26%);
+  }
+
+  .margin-ruler-stop:hover .margin-ruler-stop-tab,
+  .margin-ruler-stop-dragging .margin-ruler-stop-tab {
+    background: linear-gradient(180deg, #868a94, #4c505a);
+  }
+
+  .margin-ruler-stop:focus-visible {
+    outline: none;
+  }
+
+  .margin-ruler-stop:focus-visible .margin-ruler-stop-tab {
+    box-shadow: 0 0 0 2px rgba(212, 212, 216, 0.85), 0 2px 4px rgba(0, 0, 0, 0.5);
+  }
+
+  .margin-ruler-readout {
+    display: flex;
+    justify-content: space-between;
+    margin: 3px 0 0;
+    font-family: ui-monospace, "Courier Prime", monospace;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #8a8578;
+  }
+
+  .margin-ruler-readout-columns { color: #a8a294; }
+}

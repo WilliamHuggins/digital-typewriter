@@ -218,6 +218,12 @@ function TypewriterApp() {
         customMargins={customMargins}
         disableBackspaceDelete={disableBackspaceDelete}
         paperRef={paperRef}
+        onMarginStopsChange={({ marginLeft, marginRight }) => {
+          // Moving a stop by hand is what "custom" means, so switch the preset
+          // rather than silently diverging from the one it still names.
+          setCustomMargins({ ...customMargins, marginLeft, marginRight });
+          setMarginPreset('custom');
+        }}
         onDocumentModelChange={(model) => {
           latestDocRef.current = model;
         }}

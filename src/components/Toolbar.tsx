@@ -5,7 +5,8 @@ import {
 } from 'lucide-react';
 import { type AudioStatus } from '../lib/audio';
 import type { ResponsiveTier } from '../lib/responsive';
-import { MODELS, RIBBONS, RIBBON_LABELS, RIBBON_KEYS, type ModelKey, type RibbonKey } from '../lib/machines';
+import { MODELS, MODEL_KEYS, RIBBONS, RIBBON_LABELS, RIBBON_KEYS, type ModelKey, type RibbonKey } from '../lib/machines';
+import { MachineSelect } from './MachineSelect';
 import type { SaveState } from '../hooks/useTypewriterDocument';
 import { isDriveConfigured } from '../lib/googleDrive';
 import { DriveSaveButton } from './DriveSaveButton';
@@ -289,97 +290,82 @@ export function Toolbar({
               </button>
             </div>
 
-            <div className="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1.5">
-              <Type size={16} className="text-zinc-500" aria-hidden="true" />
-              <select
-                value={model}
-                onChange={(e) => setModel(e.target.value as ModelKey)}
-                className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs md:text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
-                aria-label="Typewriter model"
-              >
-                {Object.entries(MODELS).map(([k, v]) => (
-                  <option key={k} value={k}>{v.name}</option>
-                ))}
-              </select>
-            </div>
+            <MachineSelect
+              label="Machine"
+              className="w-52"
+              icon={<Type size={15} />}
+              value={model}
+              onChange={setModel}
+              options={MODEL_KEYS.map((key) => ({
+                value: key,
+                label: MODELS[key].name,
+                detail: MODELS[key].era,
+              }))}
+            />
 
-            <div className="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1.5">
-              <Palette size={16} className="text-zinc-500" aria-hidden="true" />
-              <select
-                value={ribbon}
-                onChange={(e) => setRibbon(e.target.value as RibbonKey)}
-                className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs md:text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
-                aria-label="Ribbon"
-              >
-                {RIBBON_KEYS.map((key) => (
-                  <option key={key} value={key}>{RIBBON_LABELS[key]}</option>
-                ))}
-              </select>
-            </div>
+            <MachineSelect
+              label="Ribbon"
+              className="w-36"
+              icon={<Palette size={15} />}
+              value={ribbon}
+              onChange={setRibbon}
+              options={RIBBON_KEYS.map((key) => ({ value: key, label: RIBBON_LABELS[key] }))}
+            />
 
             {!isTablet && (
-              <div className="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1.5">
-                <AlignJustify size={16} className="text-zinc-500" aria-hidden="true" />
-                <select
-                  value={lineSpacing}
-                  onChange={(e) => setLineSpacing(parseFloat(e.target.value))}
-                  className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs md:text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
-                  aria-label="Line spacing"
-                >
-                  <option value={1}>Single</option>
-                  <option value={1.5}>1.5</option>
-                  <option value={2}>Double</option>
-                </select>
-              </div>
+              <MachineSelect
+                label="Spacing"
+                className="w-40"
+                icon={<AlignJustify size={15} />}
+                value={lineSpacing}
+                onChange={setLineSpacing}
+                options={[
+                  { value: 1, label: 'Single' },
+                  { value: 1.5, label: 'One and a half' },
+                  { value: 2, label: 'Double' },
+                ]}
+              />
             )}
 
-            <div className="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1.5">
-              <FileText size={16} className="text-zinc-500" aria-hidden="true" />
-              <select
-                value={paperSize}
-                onChange={(e) => setPaperSize(e.target.value as PaperSizeKey)}
-                className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs md:text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
-                aria-label="Paper size"
-              >
-                {Object.entries(PAPER_SIZES).map(([k, v]) => (
-                  <option key={k} value={k}>{v.name}</option>
-                ))}
-              </select>
-            </div>
+            <MachineSelect
+              label="Paper"
+              className="w-32"
+              icon={<FileText size={15} />}
+              value={paperSize}
+              onChange={setPaperSize}
+              options={Object.entries(PAPER_SIZES).map(([k, v]) => ({ value: k as PaperSizeKey, label: v.name }))}
+            />
 
-            <div className="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1.5">
-              <Columns size={16} className="text-zinc-500" aria-hidden="true" />
-              <select
-                value={marginPreset}
-                onChange={(e) => {
-                  const val = e.target.value as MarginPresetKey;
-                  setMarginPreset(val);
-                  if (val !== 'custom') {
-                    const preset = MARGIN_PRESETS[val];
-                    setCustomMargins({
-                      marginTop: preset.marginTop,
-                      marginBottom: preset.marginBottom,
-                      marginLeft: preset.marginLeft,
-                      marginRight: preset.marginRight,
-                    });
-                  }
-                }}
-                className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs md:text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
-                aria-label="Margins"
-              >
-                {Object.entries(MARGIN_PRESETS).map(([k, v]) => (
-                  <option key={k} value={k}>{v.name}</option>
-                ))}
-                <option value="custom">Custom</option>
-              </select>
-              {marginPreset === 'custom' && !isTablet && (
-                <CustomMarginInputs
-                  customMargins={customMargins}
-                  setCustomMargins={setCustomMargins}
-                  paperSize={paperSize}
-                />
-              )}
-            </div>
+            <MachineSelect
+              label="Margins"
+              className="w-44"
+              icon={<Columns size={15} />}
+              value={marginPreset}
+              onChange={(val) => {
+                setMarginPreset(val);
+                if (val !== 'custom') {
+                  const preset = MARGIN_PRESETS[val];
+                  setCustomMargins({
+                    marginTop: preset.marginTop,
+                    marginBottom: preset.marginBottom,
+                    marginLeft: preset.marginLeft,
+                    marginRight: preset.marginRight,
+                  });
+                }
+              }}
+              options={[
+                ...Object.entries(MARGIN_PRESETS).map(([k, v]) => ({ value: k as MarginPresetKey, label: v.name })),
+                { value: 'custom' as MarginPresetKey, label: 'Set on the scale' },
+              ]}
+            />
+
+            {marginPreset === 'custom' && !isTablet && (
+              <CustomMarginInputs
+                customMargins={customMargins}
+                setCustomMargins={setCustomMargins}
+                paperSize={paperSize}
+              />
+            )}
 
             <button
               onClick={() => setDisableBackspaceDelete(!disableBackspaceDelete)}
