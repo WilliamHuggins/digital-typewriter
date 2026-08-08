@@ -36,6 +36,7 @@ function TypewriterApp() {
   const [mobileKeyboardOpen, setMobileKeyboardOpen] = useState(false);
   const [notice, setNotice] = useState<ToolbarNotice | null>(null);
   const [selectionActions, setSelectionActions] = useState<SelectionActions | null>(null);
+  const [renderAllPages, setRenderAllPages] = useState(false);
 
   const paperRef = useRef<HTMLDivElement>(null);
   const latestDocRef = useRef<DocumentModel | null>(null);
@@ -155,6 +156,14 @@ function TypewriterApp() {
 
   const handleExportPNG = async () => {
     if (!paperRef.current) return;
+
+    // Only a page or two is mounted while typing. Mount the whole document for
+    // the capture, then hand the window back.
+    setRenderAllPages(true);
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
+
     try {
       const dataUrl = await toPng(paperRef.current, {
         pixelRatio: 2,
@@ -167,6 +176,8 @@ function TypewriterApp() {
     } catch (err) {
       console.error('Failed to export PNG', err);
       showNotice('Could not render the page as an image.', 'error');
+    } finally {
+      setRenderAllPages(false);
     }
   };
 
@@ -232,6 +243,7 @@ function TypewriterApp() {
         customMargins={customMargins}
         disableBackspaceDelete={disableBackspaceDelete}
         paperRef={paperRef}
+        renderAllPages={renderAllPages}
         onMarginStopsChange={({ marginLeft, marginRight }) => {
           // Moving a stop by hand is what "custom" means, so switch the preset
           // rather than silently diverging from the one it still names.

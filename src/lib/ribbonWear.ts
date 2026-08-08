@@ -908,6 +908,22 @@ function mergeRecentSignatures(previous: number[], current: number[]): number[] 
   return merged;
 }
 
+/**
+ * Strikes per step of visible wear.
+ *
+ * Ink density used to be a function of the running impression count, so every
+ * glyph on every page restyled on every keystroke — the whole document was
+ * recomputed to move each character's opacity by four hundredths of a percent.
+ * Quantising the count means ink only changes once every `WEAR_QUANTUM`
+ * strikes, which is both imperceptible (about 1.3% opacity per step) and the
+ * thing that lets rendered lines be memoised at all.
+ */
+export const WEAR_QUANTUM = 32;
+
+export function quantizeWear(impressions: number): number {
+  return Math.floor(impressions / WEAR_QUANTUM) * WEAR_QUANTUM;
+}
+
 export function calculateRibbonInkStyle({
   state,
   ribbon,
@@ -923,12 +939,16 @@ export function calculateRibbonInkStyle({
 }): RibbonInkStyle {
   const profile = RIBBON_PERSONALITIES[ribbon];
   const charKey = char.toLowerCase();
-  const activeWear = ribbon === state.activeRibbon ? state.impressionCount : 0;
-  const lineWear = ribbon === state.activeRibbon ? (state.lineImpressions[lineIndex] ?? 0) : 0;
+  const activeWear = ribbon === state.activeRibbon ? quantizeWear(state.impressionCount) : 0;
+  const lineWear = ribbon === state.activeRibbon ? quantizeWear(state.lineImpressions[lineIndex] ?? 0) : 0;
   const wearPenalty = Math.min(0.36, activeWear * profile.wearRate);
   const lineWearPenalty = Math.min(0.12, lineWear * profile.wearRate * 2.4);
 
-  const lineShift = (pseudoRandom((lineIndex + 1) * 811 + activeWear * 0.17) - 0.5) * profile.lineVariance;
+  // Seeded on the line alone. Folding the impression count in here re-rolled
+  // every line's shift on every keystroke, which showed up as the whole page
+  // shimmering while you typed — wear that changes faster than you can type is
+  // not wear.
+  const lineShift = (pseudoRandom((lineIndex + 1) * 811) - 0.5) * profile.lineVariance;
   const charShift = (pseudoRandom((charIndex + 1) * 193 + char.charCodeAt(0) * 17) - 0.5) * profile.charVariance;
   const wornKeyShift = profile.wornKeys[charKey] ?? 0;
 

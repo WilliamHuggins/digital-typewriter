@@ -7,6 +7,8 @@ import {
   loadSheet,
   parseSheet,
   saveSheet,
+  encodeFormats,
+  encodeEmphasis,
   type PersistedSheet,
 } from './persistence';
 
@@ -78,6 +80,99 @@ describe('persistence round trip', () => {
   it('survives corrupt JSON in storage', () => {
     const storage = fakeStorage({ [STORAGE_KEY]: '{not json' });
     assert.equal(loadSheet(storage), null);
+  });
+});
+
+describe('run-length encoding', () => {
+  const fmt = (n: number) => Array.from({ length: n }, () => ({ model: 'royal' as const, ribbon: 'black' as const }));
+  const emp = (n: number) => Array.from({ length: n }, () => ({ strikeCount: 1, underline: false }));
+
+  it('collapses a uniform document to a single run', () => {
+    assert.deepEqual(encodeFormats(fmt(5000)), [[5000, 'royal', 'black']]);
+    assert.deepEqual(encodeEmphasis(emp(5000)), [[5000, 1, 0, 0, 0]]);
+  });
+
+  it('breaks a run where the ink changes', () => {
+    assert.deepEqual(
+      encodeFormats([
+        { model: 'royal', ribbon: 'black' },
+        { model: 'royal', ribbon: 'black' },
+        { model: 'royal', ribbon: 'red' },
+      ]),
+      [[2, 'royal', 'black'], [1, 'royal', 'red']],
+    );
+  });
+
+  it('breaks a run where a correction starts', () => {
+    assert.deepEqual(
+      encodeEmphasis([
+        { strikeCount: 1, underline: false },
+        { strikeCount: 1, underline: false, overstrike: 'x' },
+      ]),
+      [[1, 1, 0, 0, 0], [1, 1, 0, 'x', 0]],
+    );
+  });
+
+  it('encodes an empty document as no runs', () => {
+    assert.deepEqual(encodeFormats([]), []);
+    assert.deepEqual(encodeEmphasis([]), []);
+  });
+
+  it('round-trips through save and load', () => {
+    const storage = fakeStorage();
+    const text = 'x'.repeat(400);
+    saveSheet({ ...validSheet, text, charFormats: fmt(400), charEmphasis: emp(400) }, storage);
+
+    const loaded = loadSheet(storage);
+    assert.equal(loaded?.charFormats.length, 400);
+    assert.equal(loaded?.charEmphasis.length, 400);
+    assert.deepEqual(loaded?.charFormats[399], { model: 'royal', ribbon: 'black' });
+  });
+
+  it('shrinks the stored payload by orders of magnitude', () => {
+    const storage = fakeStorage();
+    const text = 'x'.repeat(20_000);
+    saveSheet({ ...validSheet, text, charFormats: fmt(20_000), charEmphasis: emp(20_000) }, storage);
+
+    const stored = storage.getItem(STORAGE_KEY) ?? '';
+    const plain = JSON.stringify({ charFormats: fmt(20_000), charEmphasis: emp(20_000) });
+    assert.ok(stored.length * 20 < plain.length, `${stored.length} vs ${plain.length} bytes`);
+  });
+
+  it('still reads sheets saved before run-length encoding', () => {
+    const parsed = parseSheet({
+      ...validSheet,
+      version: 1,
+      text: 'ab',
+      charFormats: [{ model: 'ibm', ribbon: 'blue' }, { model: 'ibm', ribbon: 'blue' }],
+      charEmphasis: [{ strikeCount: 2, underline: true }, { strikeCount: 1, underline: false }],
+    });
+    assert.deepEqual(parsed?.charFormats[0], { model: 'ibm', ribbon: 'blue' });
+    assert.equal(parsed?.charEmphasis[0].strikeCount, 2);
+    assert.equal(parsed?.charEmphasis[0].underline, true);
+  });
+
+  it('never expands runs past the length of the text', () => {
+    const parsed = parseSheet({
+      ...validSheet,
+      version: 1,
+      text: 'abc',
+      charFormats: [[999_999_999, 'royal', 'black']],
+      charEmphasis: [[999_999_999, 1, 0, 0, 0]],
+    });
+    assert.equal(parsed?.charFormats.length, 3);
+    assert.equal(parsed?.charEmphasis.length, 3);
+  });
+
+  it('survives a malformed run', () => {
+    const parsed = parseSheet({
+      ...validSheet,
+      version: 1,
+      text: 'abc',
+      charFormats: [['not a number', 'royal', 'black']],
+    });
+    assert.ok(parsed, 'the sheet still opens');
+    assert.equal(parsed?.text, 'abc');
   });
 });
 
