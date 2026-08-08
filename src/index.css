@@ -1,5 +1,46 @@
 @import "tailwindcss";
 
+/* The five typefaces are served from the app's own bundle, not a font CDN.
+   They already ship in the repository for PDF embedding, so fetching them from
+   a third party bought nothing and cost two things: the machine silently fell
+   back to system monospace whenever the CDN was blocked or offline, and every
+   visitor was announced to a third party before typing a word. */
+@font-face {
+  font-family: "Special Elite";
+  src: url("./fonts/SpecialElite-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Cutive Mono";
+  src: url("./fonts/CutiveMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Courier Prime";
+  src: url("./fonts/CourierPrime-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Space Mono";
+  src: url("./fonts/SpaceMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Cousine";
+  src: url("./fonts/Cousine-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 @theme {
   --font-special-elite: "Special Elite", monospace;
   --font-cutive-mono: "Cutive Mono", monospace;
@@ -307,6 +348,48 @@
 
   .carriage-cue-reduced-motion {
     transition-duration: 0ms;
+  }
+
+  /* Margin stop reached: the keys are locked until the carriage is returned.
+     Two signals, because one is easy to miss mid-sentence — the margin cue
+     goes solid red, and a flag names the reason and the way out. */
+  .carriage-margin-cue-locked {
+    background: linear-gradient(to bottom, rgba(163, 43, 34, 0.95), rgba(163, 43, 34, 0.55));
+    box-shadow: 0 0 8px rgba(163, 43, 34, 0.5);
+    animation: carriage-lock-pulse 900ms ease-out infinite;
+  }
+
+  .carriage-lock-flag {
+    position: absolute;
+    top: -2px;
+    white-space: nowrap;
+    font-family: ui-monospace, "Courier Prime", monospace;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #7d2019;
+    background: rgba(250, 244, 236, 0.94);
+    border: 1px solid rgba(163, 43, 34, 0.4);
+    border-radius: 2px;
+    padding: 2px 6px;
+    box-shadow: 0 2px 6px -3px rgba(60, 20, 12, 0.5);
+    animation: carriage-lock-in 140ms ease-out;
+    pointer-events: none;
+  }
+
+  @keyframes carriage-lock-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+  }
+
+  @keyframes carriage-lock-in {
+    from { opacity: 0; transform: translateX(-3px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .carriage-margin-cue-locked { animation: none; }
+    .carriage-lock-flag { animation: none; }
   }
 
   @keyframes typewriter-caret-blink {

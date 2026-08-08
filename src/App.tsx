@@ -1,16 +1,24 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { toPng } from 'html-to-image';
-import { Toolbar, MODELS, RIBBONS } from './components/Toolbar';
+import { GoogleOAuthProvider } from '@react-oauth/google';
+import { Toolbar, type ToolbarNotice } from './components/Toolbar';
 import { Typewriter } from './components/Typewriter';
+import { MODELS, type ModelKey, type RibbonKey } from './lib/machines';
 import { audioEngine, type AudioStatus } from './lib/audio';
 import { resolveResponsiveTier, type ResponsiveTier } from './lib/responsive';
 import { type PaperSizeKey, type MarginPresetKey, type CustomMargins, type DocumentModel } from './lib/documentModel';
 import { exportDocumentToPdf } from './lib/pdfExport';
 import type { RibbonWearState } from './lib/ribbonWear';
+import { useTypewriterDocument, type SheetSettings } from './hooks/useTypewriterDocument';
+import { copyToClipboard, downloadTextFile, toFileBaseName, toPlainText } from './lib/exporters';
+import { getGoogleClientId } from './lib/googleDrive';
+import type { PersistedSheet } from './lib/persistence';
 
-export default function App() {
-  const [model, setModel] = useState<keyof typeof MODELS>('remington');
-  const [ribbon, setRibbon] = useState<keyof typeof RIBBONS>('black');
+const NOTICE_TIMEOUT_MS = 4000;
+
+function TypewriterApp() {
+  const [model, setModel] = useState<ModelKey>('remington');
+  const [ribbon, setRibbon] = useState<RibbonKey>('black');
   const [volume, setVolume] = useState(0.8);
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [audioStatus, setAudioStatus] = useState<AudioStatus>('off');
@@ -26,10 +34,44 @@ export default function App() {
   const [disableBackspaceDelete, setDisableBackspaceDelete] = useState(false);
   const [responsiveTier, setResponsiveTier] = useState<ResponsiveTier>('desktop');
   const [mobileKeyboardOpen, setMobileKeyboardOpen] = useState(false);
+  const [notice, setNotice] = useState<ToolbarNotice | null>(null);
 
   const paperRef = useRef<HTMLDivElement>(null);
   const latestDocRef = useRef<DocumentModel | null>(null);
   const latestWearRef = useRef<RibbonWearState | null>(null);
+  const noticeTimerRef = useRef<number | null>(null);
+
+  const settings: SheetSettings = {
+    model,
+    ribbon,
+    lineSpacing,
+    paperSize,
+    marginPreset,
+    customMargins,
+  };
+
+  // Restoring a saved sheet also restores the machine it was typed on, so a
+  // reload brings back the same page, not just the same words.
+  const handleRestoreSettings = useCallback((sheet: PersistedSheet) => {
+    setModel(sheet.model);
+    setRibbon(sheet.ribbon);
+    setLineSpacing(sheet.lineSpacing);
+    setPaperSize(sheet.paperSize as PaperSizeKey);
+    setMarginPreset(sheet.marginPreset as MarginPresetKey);
+    setCustomMargins(sheet.customMargins);
+  }, []);
+
+  const doc = useTypewriterDocument({ settings, onRestoreSettings: handleRestoreSettings });
+
+  const showNotice = useCallback((message: string, tone: 'ok' | 'error') => {
+    setNotice({ message, tone });
+    if (noticeTimerRef.current) window.clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = window.setTimeout(() => setNotice(null), NOTICE_TIMEOUT_MS);
+  }, []);
+
+  useEffect(() => () => {
+    if (noticeTimerRef.current) window.clearTimeout(noticeTimerRef.current);
+  }, []);
 
   useEffect(() => {
     const unsubscribe = audioEngine.onStatusChange(setAudioStatus);
@@ -70,6 +112,34 @@ export default function App() {
     return () => viewport.removeEventListener('resize', detectKeyboard);
   }, []);
 
+  // ---------------------------------------------------------------------------
+  // Getting the writing out
+  // ---------------------------------------------------------------------------
+
+  const plainText = () => toPlainText(doc.text);
+  const fileBaseName = () => toFileBaseName(doc.title);
+
+  const handleExportTXT = () => {
+    if (!doc.text.trim()) {
+      showNotice('Nothing typed yet.', 'error');
+      return;
+    }
+    downloadTextFile(`${fileBaseName()}.txt`, plainText());
+    showNotice('Text file downloaded.', 'ok');
+  };
+
+  const handleCopyText = async () => {
+    if (!doc.text.trim()) {
+      showNotice('Nothing typed yet.', 'error');
+      return;
+    }
+    const copied = await copyToClipboard(plainText());
+    showNotice(
+      copied ? 'Text copied to the clipboard.' : 'Could not reach the clipboard in this browser.',
+      copied ? 'ok' : 'error',
+    );
+  };
+
   const handleExportPNG = async () => {
     if (!paperRef.current) return;
     try {
@@ -78,11 +148,12 @@ export default function App() {
         backgroundColor: '#f4f1ea',
       });
       const link = document.createElement('a');
-      link.download = `typewriter-page-${Date.now()}.png`;
+      link.download = `${fileBaseName()}.png`;
       link.href = dataUrl;
       link.click();
     } catch (err) {
       console.error('Failed to export PNG', err);
+      showNotice('Could not render the page as an image.', 'error');
     }
   };
 
@@ -98,6 +169,7 @@ export default function App() {
       });
     } catch (err) {
       console.error('Failed to export PDF', err);
+      showNotice('Could not build the PDF.', 'error');
     }
   };
 
@@ -116,12 +188,25 @@ export default function App() {
         customMargins={customMargins} setCustomMargins={setCustomMargins}
         disableBackspaceDelete={disableBackspaceDelete}
         setDisableBackspaceDelete={setDisableBackspaceDelete}
+        title={doc.title} setTitle={doc.setTitle}
+        saveState={doc.saveState} saveError={doc.saveError}
+        canUndo={doc.canUndo} canRedo={doc.canRedo}
+        onUndo={() => doc.undo()}
+        onRedo={() => doc.redo()}
+        onNewSheet={doc.newSheet}
+        onExportTXT={handleExportTXT}
+        onCopyText={handleCopyText}
         onExportPNG={handleExportPNG}
         onExportPDF={handleExportPDF}
+        driveContents={plainText}
+        driveFilename={() => `${fileBaseName()}.txt`}
+        onNotice={showNotice}
+        notice={notice}
       />
       <Typewriter
         responsiveTier={responsiveTier}
         mobileKeyboardOpen={mobileKeyboardOpen}
+        doc={doc}
         model={model}
         ribbon={ribbon}
         audioEnabled={audioEnabled}
@@ -133,13 +218,30 @@ export default function App() {
         customMargins={customMargins}
         disableBackspaceDelete={disableBackspaceDelete}
         paperRef={paperRef}
-        onDocumentModelChange={(doc) => {
-          latestDocRef.current = doc;
+        onDocumentModelChange={(model) => {
+          latestDocRef.current = model;
         }}
         onRibbonWearChange={(wearState) => {
           latestWearRef.current = wearState;
         }}
       />
     </div>
+  );
+}
+
+export default function App() {
+  const clientId = getGoogleClientId();
+
+  // The OAuth provider loads Google's script as soon as it mounts, so it is
+  // only rendered when Drive is actually configured. Without it the app makes
+  // no third-party requests at all.
+  if (!clientId) {
+    return <TypewriterApp />;
+  }
+
+  return (
+    <GoogleOAuthProvider clientId={clientId}>
+      <TypewriterApp />
+    </GoogleOAuthProvider>
   );
 }

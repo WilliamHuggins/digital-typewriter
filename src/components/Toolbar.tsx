@@ -1,7 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { Volume2, VolumeX, Download, Type, Palette, Home, AlignJustify, FileText, Columns, Eraser, Menu, X, Settings2 } from 'lucide-react';
+import {
+  Volume2, VolumeX, Download, Type, Palette, AlignJustify, FileText, Columns,
+  Eraser, Menu, X, Settings2, Undo2, Redo2, FilePlus2, ClipboardCopy, Check, AlertTriangle,
+} from 'lucide-react';
 import { type AudioStatus } from '../lib/audio';
 import type { ResponsiveTier } from '../lib/responsive';
+import { MODELS, RIBBONS, RIBBON_LABELS, RIBBON_KEYS, type ModelKey, type RibbonKey } from '../lib/machines';
+import type { SaveState } from '../hooks/useTypewriterDocument';
+import { isDriveConfigured } from '../lib/googleDrive';
+import { DriveSaveButton } from './DriveSaveButton';
 import {
   PAPER_SIZES,
   MARGIN_PRESETS,
@@ -14,27 +21,19 @@ import {
   MIN_MARGIN,
 } from '../lib/documentModel';
 
-export const MODELS = {
-  remington: { name: 'Remington Noiseless', font: 'font-special-elite', wear: 0.8 },
-  underwood: { name: 'Underwood No. 5', font: 'font-cutive-mono', wear: 0.5 },
-  royal: { name: 'Royal Quiet De Luxe', font: 'font-courier-prime', wear: 0.2 },
-  olivetti: { name: 'Olivetti Lettera 22', font: 'font-space-mono', wear: 0.1 },
-  ibm: { name: 'IBM Executive', font: 'font-cousine', wear: 0.05 },
-};
+export { MODELS, RIBBONS } from '../lib/machines';
 
-export const RIBBONS = {
-  black: 'text-ink-black',
-  red: 'text-ink-red',
-  blue: 'text-ink-blue',
-  stencil: 'ink-stencil',
-};
+export interface ToolbarNotice {
+  message: string;
+  tone: 'ok' | 'error';
+}
 
 interface ToolbarProps {
   responsiveTier: ResponsiveTier;
-  model: keyof typeof MODELS;
-  setModel: (m: keyof typeof MODELS) => void;
-  ribbon: keyof typeof RIBBONS;
-  setRibbon: (r: keyof typeof RIBBONS) => void;
+  model: ModelKey;
+  setModel: (m: ModelKey) => void;
+  ribbon: RibbonKey;
+  setRibbon: (r: RibbonKey) => void;
   volume: number;
   setVolume: (v: number) => void;
   audioEnabled: boolean;
@@ -50,8 +49,27 @@ interface ToolbarProps {
   setCustomMargins: (m: CustomMargins) => void;
   disableBackspaceDelete: boolean;
   setDisableBackspaceDelete: (value: boolean) => void;
+
+  title: string;
+  setTitle: (title: string) => void;
+  saveState: SaveState;
+  saveError: string | null;
+
+  canUndo: boolean;
+  canRedo: boolean;
+  onUndo: () => void;
+  onRedo: () => void;
+  onNewSheet: () => void;
+
+  onExportTXT: () => void;
+  onCopyText: () => void;
   onExportPNG: () => void;
   onExportPDF: () => void;
+
+  driveContents: () => string;
+  driveFilename: () => string;
+  onNotice: (message: string, tone: 'ok' | 'error') => void;
+  notice: ToolbarNotice | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -122,6 +140,28 @@ const AUDIO_STATUS_LABELS: Record<AudioStatus, string> = {
   failed: 'Sound Error',
 };
 
+const SAVE_STATE_LABELS: Record<SaveState, string> = {
+  idle: 'Saved on this device',
+  saving: 'Saving…',
+  saved: 'Saved',
+  error: 'Not saved',
+};
+
+function SaveIndicator({ saveState, saveError }: { saveState: SaveState; saveError: string | null }) {
+  const failed = saveState === 'error';
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-[11px] ${failed ? 'text-amber-400' : 'text-zinc-500'}`}
+      title={saveError ?? 'Your sheet is kept in this browser until you clear it.'}
+    >
+      {failed
+        ? <AlertTriangle size={12} aria-hidden="true" />
+        : <Check size={12} aria-hidden="true" />}
+      {SAVE_STATE_LABELS[saveState]}
+    </span>
+  );
+}
+
 export function Toolbar({
   responsiveTier,
   model, setModel,
@@ -134,9 +174,14 @@ export function Toolbar({
   marginPreset, setMarginPreset,
   customMargins, setCustomMargins,
   disableBackspaceDelete, setDisableBackspaceDelete,
-  onExportPNG, onExportPDF
+  title, setTitle,
+  saveState, saveError,
+  canUndo, canRedo, onUndo, onRedo, onNewSheet,
+  onExportTXT, onCopyText, onExportPNG, onExportPDF,
+  driveContents, driveFilename, onNotice, notice,
 }: ToolbarProps) {
   const [isMobileControlsOpen, setIsMobileControlsOpen] = useState(false);
+  const driveAvailable = isDriveConfigured();
 
   const isTablet = responsiveTier === 'tablet';
   const isMobile = responsiveTier === 'mobile';
@@ -153,28 +198,50 @@ export function Toolbar({
       ? 'text-emerald-400'
       : 'text-zinc-500';
 
+  const iconButton = 'inline-flex items-center justify-center rounded border border-zinc-700 bg-zinc-800 p-1.5 text-zinc-300 hover:bg-zinc-700 hover:text-white disabled:opacity-40 disabled:hover:bg-zinc-800 disabled:hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400';
+  const textButton = 'inline-flex items-center gap-1.5 rounded border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400';
+
+  const handleNewSheet = () => {
+    const confirmed = window.confirm('Start a new sheet? The current one will be cleared from this device.');
+    if (confirmed) onNewSheet();
+  };
+
   return (
     <>
       <div className="relative z-30 border-b border-zinc-800 bg-zinc-900/95 backdrop-blur-sm shadow-md">
         <div className="flex items-center justify-between gap-3 px-3 py-2.5 sm:px-4">
-          <a
-            href="https://aiwritersretreat.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex min-w-0 items-center gap-2 text-zinc-300 hover:text-white transition-colors group"
-            title="Home - aiwritersretreat.com"
-          >
-            <Home size={18} className="text-zinc-500 group-hover:text-white transition-colors" />
-            <span className="truncate font-serif font-medium tracking-wide text-base sm:text-lg">
-              Digital Typewriter
-              <span className="text-zinc-500 text-xs sm:text-sm font-sans tracking-normal ml-1">by AIWR</span>
-            </span>
-          </a>
+          <div className="flex min-w-0 items-center gap-3">
+            <a
+              href="https://aiwritersretreat.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex min-w-0 shrink-0 flex-col leading-tight text-zinc-300 hover:text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 rounded"
+              title="AI Writers Retreat"
+            >
+              <span className="font-serif text-base font-medium tracking-wide sm:text-lg">
+                AI Writers Retreat
+              </span>
+              <span className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
+                Digital Typewriter · Open Source
+              </span>
+            </a>
+
+            <label className="flex min-w-0 flex-1 items-center gap-2">
+              <span className="sr-only">Document name</span>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Untitled sheet"
+                className="w-full min-w-0 max-w-64 rounded border border-transparent bg-transparent px-2 py-1 text-sm text-zinc-200 hover:border-zinc-700 focus:border-zinc-600 focus:bg-zinc-800 focus:outline-none"
+              />
+            </label>
+          </div>
 
           {isMobile ? (
             <button
               onClick={() => setIsMobileControlsOpen((prev) => !prev)}
-              className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-800 px-2.5 py-1.5 text-sm text-zinc-200 hover:bg-zinc-700"
+              className="inline-flex shrink-0 items-center gap-2 rounded-md border border-zinc-700 bg-zinc-800 px-2.5 py-1.5 text-sm text-zinc-200 hover:bg-zinc-700"
               aria-expanded={isMobileControlsOpen}
               aria-controls="mobile-controls-panel"
             >
@@ -182,11 +249,13 @@ export function Toolbar({
               Controls
             </button>
           ) : (
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2">
+              <SaveIndicator saveState={saveState} saveError={saveError} />
               <button
                 onClick={() => setAudioEnabled(!audioEnabled)}
-                className="p-1.5 hover:bg-zinc-800 rounded transition-colors"
+                className="p-1.5 hover:bg-zinc-800 rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400"
                 title={audioEnabled ? 'Mute' : 'Unmute'}
+                aria-label={audioEnabled ? 'Mute sound' : 'Enable sound'}
               >
                 {audioEnabled ? <Volume2 size={18} /> : <VolumeX size={18} className="text-red-400" />}
               </button>
@@ -199,6 +268,7 @@ export function Toolbar({
                 onChange={(e) => setVolume(parseFloat(e.target.value))}
                 className="w-16 md:w-20 accent-zinc-500"
                 disabled={!audioEnabled}
+                aria-label="Sound volume"
               />
               <span className={`text-[11px] uppercase tracking-wide ${statusTone}`}>{AUDIO_STATUS_LABELS[audioStatus]}</span>
             </div>
@@ -207,12 +277,25 @@ export function Toolbar({
 
         <div className={isMobile ? 'hidden' : 'px-3 pb-3 sm:px-4'}>
           <div className="flex flex-wrap items-center gap-2 md:gap-3">
+            <div className="flex items-center gap-1">
+              <button onClick={onUndo} disabled={!canUndo} className={iconButton} title="Undo (Ctrl+Z)" aria-label="Undo">
+                <Undo2 size={16} />
+              </button>
+              <button onClick={onRedo} disabled={!canRedo} className={iconButton} title="Redo (Ctrl+Shift+Z)" aria-label="Redo">
+                <Redo2 size={16} />
+              </button>
+              <button onClick={handleNewSheet} className={iconButton} title="New sheet" aria-label="New sheet">
+                <FilePlus2 size={16} />
+              </button>
+            </div>
+
             <div className="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1.5">
-              <Type size={16} className="text-zinc-500" />
+              <Type size={16} className="text-zinc-500" aria-hidden="true" />
               <select
                 value={model}
-                onChange={(e) => setModel(e.target.value as any)}
+                onChange={(e) => setModel(e.target.value as ModelKey)}
                 className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs md:text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                aria-label="Typewriter model"
               >
                 {Object.entries(MODELS).map(([k, v]) => (
                   <option key={k} value={k}>{v.name}</option>
@@ -221,26 +304,27 @@ export function Toolbar({
             </div>
 
             <div className="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1.5">
-              <Palette size={16} className="text-zinc-500" />
+              <Palette size={16} className="text-zinc-500" aria-hidden="true" />
               <select
                 value={ribbon}
-                onChange={(e) => setRibbon(e.target.value as any)}
+                onChange={(e) => setRibbon(e.target.value as RibbonKey)}
                 className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs md:text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                aria-label="Ribbon"
               >
-                <option value="black">Black Ribbon</option>
-                <option value="red">Red Ribbon</option>
-                <option value="blue">Blue Ribbon</option>
-                <option value="stencil">Stencil</option>
+                {RIBBON_KEYS.map((key) => (
+                  <option key={key} value={key}>{RIBBON_LABELS[key]}</option>
+                ))}
               </select>
             </div>
 
             {!isTablet && (
               <div className="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1.5">
-                <AlignJustify size={16} className="text-zinc-500" />
+                <AlignJustify size={16} className="text-zinc-500" aria-hidden="true" />
                 <select
                   value={lineSpacing}
                   onChange={(e) => setLineSpacing(parseFloat(e.target.value))}
                   className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs md:text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                  aria-label="Line spacing"
                 >
                   <option value={1}>Single</option>
                   <option value={1.5}>1.5</option>
@@ -250,11 +334,12 @@ export function Toolbar({
             )}
 
             <div className="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1.5">
-              <FileText size={16} className="text-zinc-500" />
+              <FileText size={16} className="text-zinc-500" aria-hidden="true" />
               <select
                 value={paperSize}
                 onChange={(e) => setPaperSize(e.target.value as PaperSizeKey)}
                 className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs md:text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                aria-label="Paper size"
               >
                 {Object.entries(PAPER_SIZES).map(([k, v]) => (
                   <option key={k} value={k}>{v.name}</option>
@@ -263,7 +348,7 @@ export function Toolbar({
             </div>
 
             <div className="flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1.5">
-              <Columns size={16} className="text-zinc-500" />
+              <Columns size={16} className="text-zinc-500" aria-hidden="true" />
               <select
                 value={marginPreset}
                 onChange={(e) => {
@@ -280,6 +365,7 @@ export function Toolbar({
                   }
                 }}
                 className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs md:text-sm focus:outline-none focus:ring-1 focus:ring-zinc-500"
+                aria-label="Margins"
               >
                 {Object.entries(MARGIN_PRESETS).map(([k, v]) => (
                   <option key={k} value={k}>{v.name}</option>
@@ -302,24 +388,43 @@ export function Toolbar({
                   ? 'bg-amber-900/50 border-amber-700 text-amber-200'
                   : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
               }`}
+              aria-pressed={disableBackspaceDelete}
             >
-              <Eraser size={14} />
+              <Eraser size={14} aria-hidden="true" />
               {disableBackspaceDelete ? 'Backspace Lock On' : 'Backspace Lock Off'}
             </button>
 
-            <button
-              onClick={onExportPNG}
-              className="inline-flex items-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 px-3 py-1.5 rounded text-sm"
-            >
-              <Download size={16} /> PNG
-            </button>
-            <button
-              onClick={onExportPDF}
-              className="inline-flex items-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 px-3 py-1.5 rounded text-sm"
-            >
-              <Download size={16} /> PDF
-            </button>
+            <div className="ml-auto flex items-center gap-2">
+              <button onClick={onExportTXT} className={textButton} title="Download the text to this device">
+                <Download size={16} aria-hidden="true" /> Text
+              </button>
+              <button onClick={onCopyText} className={textButton} title="Copy the text to the clipboard">
+                <ClipboardCopy size={16} aria-hidden="true" /> Copy
+              </button>
+              {driveAvailable && (
+                <DriveSaveButton
+                  getContents={driveContents}
+                  getFilename={driveFilename}
+                  onResult={onNotice}
+                />
+              )}
+              <button onClick={onExportPNG} className={textButton}>
+                <Download size={16} aria-hidden="true" /> PNG
+              </button>
+              <button onClick={onExportPDF} className={textButton}>
+                <Download size={16} aria-hidden="true" /> PDF
+              </button>
+            </div>
           </div>
+
+          {notice && (
+            <p
+              className={`mt-2 text-xs ${notice.tone === 'error' ? 'text-amber-400' : 'text-emerald-400'}`}
+              role="status"
+            >
+              {notice.message}
+            </p>
+          )}
         </div>
       </div>
 
@@ -329,6 +434,7 @@ export function Toolbar({
           className={isMobileControlsOpen ? 'fixed inset-0 z-40' : 'hidden'}
           role="dialog"
           aria-modal="true"
+          aria-label="Typewriter controls"
         >
           <button
             className="absolute inset-0 bg-black/60"
@@ -338,28 +444,43 @@ export function Toolbar({
           <div className="absolute inset-x-0 bottom-0 max-h-[78dvh] overflow-y-auto rounded-t-2xl border-t border-zinc-700 bg-zinc-900 p-4 shadow-2xl">
             <div className="mb-3 flex items-center justify-between">
               <div className="flex items-center gap-2 text-zinc-200">
-                <Settings2 size={16} />
+                <Settings2 size={16} aria-hidden="true" />
                 <span className="text-sm font-medium uppercase tracking-wide">Typewriter Controls</span>
               </div>
-              <button onClick={() => setIsMobileControlsOpen(false)} className="rounded border border-zinc-700 p-1.5 text-zinc-300">
+              <button onClick={() => setIsMobileControlsOpen(false)} className="rounded border border-zinc-700 p-1.5 text-zinc-300" aria-label="Close controls">
                 <X size={14} />
               </button>
             </div>
 
             <div className="grid grid-cols-1 gap-3 text-sm">
+              <div className="flex items-center justify-between">
+                <SaveIndicator saveState={saveState} saveError={saveError} />
+                <div className="flex gap-1">
+                  <button onClick={onUndo} disabled={!canUndo} className={iconButton} aria-label="Undo"><Undo2 size={16} /></button>
+                  <button onClick={onRedo} disabled={!canRedo} className={iconButton} aria-label="Redo"><Redo2 size={16} /></button>
+                </div>
+              </div>
+
+              <label className="flex flex-col gap-1">
+                <span className="text-zinc-400">Document name</span>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Untitled sheet"
+                  className="rounded border border-zinc-700 bg-zinc-800 px-2 py-2 text-zinc-200"
+                />
+              </label>
               <label className="flex flex-col gap-1">
                 <span className="text-zinc-400">Model</span>
-                <select value={model} onChange={(e) => setModel(e.target.value as any)} className="bg-zinc-800 border border-zinc-700 rounded px-2 py-2">
+                <select value={model} onChange={(e) => setModel(e.target.value as ModelKey)} className="bg-zinc-800 border border-zinc-700 rounded px-2 py-2">
                   {Object.entries(MODELS).map(([k, v]) => <option key={k} value={k}>{v.name}</option>)}
                 </select>
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-zinc-400">Ribbon</span>
-                <select value={ribbon} onChange={(e) => setRibbon(e.target.value as any)} className="bg-zinc-800 border border-zinc-700 rounded px-2 py-2">
-                  <option value="black">Black Ribbon</option>
-                  <option value="red">Red Ribbon</option>
-                  <option value="blue">Blue Ribbon</option>
-                  <option value="stencil">Stencil</option>
+                <select value={ribbon} onChange={(e) => setRibbon(e.target.value as RibbonKey)} className="bg-zinc-800 border border-zinc-700 rounded px-2 py-2">
+                  {RIBBON_KEYS.map((key) => <option key={key} value={key}>{RIBBON_LABELS[key]}</option>)}
                 </select>
               </label>
               <label className="flex flex-col gap-1">
@@ -382,10 +503,28 @@ export function Toolbar({
                   <option value="custom">Custom</option>
                 </select>
               </label>
+
               <div className="grid grid-cols-2 gap-2">
+                <button onClick={onExportTXT} className="rounded border border-zinc-700 bg-zinc-800 px-3 py-2">Download Text</button>
+                <button onClick={onCopyText} className="rounded border border-zinc-700 bg-zinc-800 px-3 py-2">Copy Text</button>
+                {driveAvailable && (
+                  <DriveSaveButton
+                    compact
+                    getContents={driveContents}
+                    getFilename={driveFilename}
+                    onResult={onNotice}
+                  />
+                )}
                 <button onClick={onExportPNG} className="rounded border border-zinc-700 bg-zinc-800 px-3 py-2">Export PNG</button>
                 <button onClick={onExportPDF} className="rounded border border-zinc-700 bg-zinc-800 px-3 py-2">Export PDF</button>
+                <button onClick={handleNewSheet} className="rounded border border-zinc-700 bg-zinc-800 px-3 py-2">New Sheet</button>
               </div>
+
+              {notice && (
+                <p className={`text-xs ${notice.tone === 'error' ? 'text-amber-400' : 'text-emerald-400'}`} role="status">
+                  {notice.message}
+                </p>
+              )}
             </div>
           </div>
         </div>
