@@ -114,197 +114,256 @@
   }
 
 
-  .typewriter-machine-frame {
-    position: relative;
-    height: 100%;
-    border-radius: 24px 24px 18px 18px;
-    background:
-      linear-gradient(180deg, rgba(58, 62, 70, 0.42) 0%, rgba(34, 37, 44, 0.36) 54%, rgba(28, 31, 37, 0.44) 100%);
+  /* -----------------------------------------------------------------------
+   * The machine
+   *
+   * Rebuilt so it frames the sheet rather than tinting it. The old chassis
+   * stacked translucent dark panels across the whole page and cost the paper
+   * about a third of its brightness. Everything here is opaque and sits either
+   * outside the sheet's width (rails, knobs, apron) or in front of it at the
+   * printing line only (platen, bail, type guide) — which is where those parts
+   * physically are on a real machine.
+   *
+   * Colours come from per-model CSS variables set in MachineChassis.
+   * ----------------------------------------------------------------------- */
+
+  .machine-carriage {
+    transition: transform 150ms ease-out;
+  }
+
+  .machine-rail {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background: linear-gradient(90deg, var(--body-shade), var(--body) 42%, var(--body-highlight));
     box-shadow:
-      0 16px 30px -30px rgba(0, 0, 0, 0.88),
-      0 1px 0 rgba(255, 255, 255, 0.15) inset,
-      0 -1px 0 rgba(12, 13, 17, 0.28) inset;
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      0 0 22px -6px rgba(0, 0, 0, 0.55);
+  }
+
+  .machine-rail-left {
+    border-radius: var(--radius) 0 0 var(--radius);
+    background: linear-gradient(90deg, var(--body-shade), var(--body) 58%, var(--body-highlight));
+  }
+
+  .machine-rail-right {
+    border-radius: 0 var(--radius) var(--radius) 0;
+    background: linear-gradient(270deg, var(--body-shade), var(--body) 58%, var(--body-highlight));
+  }
+
+  /* Surface treatments. Wrinkle paint, japanned gloss and satin enamel read
+     very differently in person; these approximate them with texture overlays. */
+  .machine-finish-crinkle {
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'%3E%3Cfilter id='c'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.55' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23c)' opacity='0.16'/%3E%3C/svg%3E");
+    background-blend-mode: soft-light;
+  }
+
+  .machine-finish-gloss::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(115deg, rgba(255, 255, 255, 0.22) 0%, transparent 26%, transparent 72%, rgba(255, 255, 255, 0.1) 100%);
+    pointer-events: none;
+  }
+
+  .machine-finish-satin {
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 30%);
+  }
+
+  /* Platen: a rubber cylinder. The sheet wraps over it and is struck at its
+     lower edge, so it is the one part that belongs in front of the paper. */
+  .machine-platen {
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    border-radius: 9999px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--platen) 72%, white) 0%, var(--platen) 34%, color-mix(in srgb, var(--platen) 70%, black) 100%);
+    box-shadow:
+      inset 0 2px 3px rgba(255, 255, 255, 0.14),
+      inset 0 -3px 5px rgba(0, 0, 0, 0.45),
+      0 6px 14px -8px rgba(0, 0, 0, 0.7);
     overflow: hidden;
   }
 
-
-  .machine-model-remington {
-    background: linear-gradient(180deg, rgba(78, 61, 47, 0.48) 0%, rgba(44, 40, 42, 0.38) 54%, rgba(34, 35, 41, 0.46) 100%);
-  }
-
-  .machine-model-underwood {
-    background: linear-gradient(180deg, rgba(84, 70, 52, 0.46) 0%, rgba(43, 46, 48, 0.37) 54%, rgba(35, 39, 43, 0.45) 100%);
-  }
-
-  .machine-model-royal {
-    background: linear-gradient(180deg, rgba(84, 56, 56, 0.48) 0%, rgba(46, 40, 46, 0.37) 54%, rgba(36, 35, 42, 0.45) 100%);
-  }
-
-  .machine-model-olivetti {
-    background: linear-gradient(180deg, rgba(96, 84, 58, 0.46) 0%, rgba(45, 50, 52, 0.36) 54%, rgba(36, 42, 45, 0.44) 100%);
-  }
-
-  .machine-model-ibm {
-    background: linear-gradient(180deg, rgba(72, 82, 98, 0.46) 0%, rgba(43, 49, 58, 0.36) 54%, rgba(33, 41, 50, 0.44) 100%);
-  }
-
-  .machine-color-wash {
+  .machine-platen-sheen {
     position: absolute;
-    inset: 0;
-    background:
-      radial-gradient(120% 85% at 0% 0%, rgba(var(--machine-warm, 132, 84, 52), 0.24), transparent 52%),
-      radial-gradient(120% 90% at 100% 8%, rgba(var(--machine-cool, 62, 96, 142), 0.2), transparent 54%),
-      radial-gradient(90% 70% at 50% 95%, rgba(var(--machine-base, 116, 82, 44), 0.17), transparent 62%);
-    opacity: 0.82;
-    mix-blend-mode: screen;
-    pointer-events: none;
-  }
-
-  .machine-frame-top {
-    position: absolute;
-    top: 0;
-    left: 10%;
-    right: 10%;
-    height: 76px;
-    border-radius: 0 0 20px 20px;
-    background: linear-gradient(to bottom, rgba(26, 29, 36, 0.56), rgba(26, 29, 36, 0.14));
-    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.14) inset;
-  }
-
-  .machine-frame-sides {
-    position: absolute;
-    inset: 70px 0 110px;
-    border-left: 30px solid rgba(20, 23, 30, 0.24);
-    border-right: 30px solid rgba(20, 23, 30, 0.24);
-    box-shadow:
-      1px 0 0 rgba(255, 255, 255, 0.09) inset,
-      -1px 0 0 rgba(255, 255, 255, 0.09) inset;
-  }
-
-  .machine-paper-window {
-    position: absolute;
-    inset: 72px 34px 112px;
-    border-radius: 8px;
-    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.01) 38%, rgba(255, 255, 255, 0.08));
-    box-shadow:
-      0 0 0 1px rgba(255, 255, 255, 0.12) inset,
-      0 0 0 2px rgba(11, 14, 18, 0.2) inset;
-  }
-
-  .machine-platen-assembly {
-    position: absolute;
-    left: 48px;
-    right: 48px;
-    top: 102px;
-    height: 20px;
-    pointer-events: none;
-  }
-
-  .machine-platen-roller {
-    position: absolute;
-    inset: 0;
+    inset-inline: 3%;
+    top: 14%;
+    height: 22%;
     border-radius: 9999px;
-    background: linear-gradient(to bottom, rgba(74, 81, 92, 0.58), rgba(34, 40, 50, 0.62));
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.16) inset,
-      0 -1px 0 rgba(0, 0, 0, 0.25) inset,
-      0 4px 8px -8px rgba(0, 0, 0, 0.55);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.2), transparent);
+    filter: blur(1px);
   }
 
-  .machine-ribbon-band {
+  /* Fine axial scoring, the way worn platen rubber catches light. */
+  .machine-platen-grain {
     position: absolute;
-    left: 10px;
-    right: 10px;
-    top: 11px;
+    inset: 0;
+    opacity: 0.3;
+    background-image: repeating-linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.18) 0 1px,
+      transparent 1px 4px
+    );
+  }
+
+  .machine-platen-shadow {
+    position: absolute;
+    inset-inline: 2%;
+    height: 16px;
+    background: linear-gradient(180deg, rgba(24, 18, 10, 0.34), transparent);
+    pointer-events: none;
+  }
+
+  /* Paper bail: the sprung bar with rubber rollers that holds the sheet flat. */
+  .machine-bail {
+    position: absolute;
+    inset-inline: 4%;
     height: 3px;
     border-radius: 9999px;
-    background: linear-gradient(to right, rgba(74, 28, 28, 0.16), rgba(130, 52, 52, 0.34), rgba(74, 28, 28, 0.16));
-    box-shadow: 0 0 8px rgba(42, 10, 10, 0.18);
+    background: linear-gradient(180deg, var(--trim), color-mix(in srgb, var(--trim) 55%, black));
+    box-shadow: 0 2px 4px -2px rgba(0, 0, 0, 0.65);
   }
 
-  .machine-strike-shadow {
+  .machine-bail-roller {
     position: absolute;
-    left: 5%;
-    right: 5%;
-    top: 13px;
-    height: 12px;
-    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.14), transparent 85%);
-    opacity: 0.36;
+    top: -3px;
+    width: 16px;
+    height: 9px;
+    border-radius: 9999px;
+    background: linear-gradient(180deg, #4a4540, #221f1b);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
   }
 
-  .machine-frame-bottom {
+  /* Platen knobs, one at each end of the roller. */
+  .machine-knob {
     position: absolute;
-    left: 9%;
-    right: 9%;
+    border-radius: 9999px;
+    background: radial-gradient(circle at 34% 30%, var(--body-highlight), var(--knob) 62%, color-mix(in srgb, var(--knob) 60%, black));
+    box-shadow:
+      inset 0 2px 3px rgba(255, 255, 255, 0.16),
+      0 5px 12px -6px rgba(0, 0, 0, 0.75);
+    display: grid;
+    place-items: center;
+  }
+
+  .machine-knob-face {
+    width: 46%;
+    height: 46%;
+    border-radius: 9999px;
+    background: radial-gradient(circle at 40% 34%, color-mix(in srgb, var(--trim) 80%, white), var(--trim) 70%, color-mix(in srgb, var(--trim) 50%, black));
+    box-shadow: inset 0 -1px 2px rgba(0, 0, 0, 0.4);
+  }
+
+  /* Ribbon spools, turning a notch per strike. */
+  .machine-spool {
+    position: absolute;
+    width: 30px;
+    height: 30px;
+    border-radius: 9999px;
+    background: radial-gradient(circle at 42% 36%, color-mix(in srgb, var(--ribbon-ink) 60%, #3a3a33), var(--ribbon-ink) 58%, #171512);
+    box-shadow: inset 0 0 0 2px var(--trim), 0 4px 10px -6px rgba(0, 0, 0, 0.8);
+    display: grid;
+    place-items: center;
+    transition: transform 90ms linear;
+  }
+
+  .machine-spool-hub {
+    width: 30%;
+    height: 30%;
+    border-radius: 9999px;
+    background: var(--trim);
+    box-shadow: inset 0 -1px 1px rgba(0, 0, 0, 0.45);
+  }
+
+  /* Type guide: the forked bracket the typebar strikes through. It rides with
+     the printing point, which is what makes the strike position legible. */
+  .machine-type-guide {
+    position: absolute;
+    width: 20px;
+    margin-left: -10px;
+    transition: left 85ms cubic-bezier(0.2, 0.8, 0.3, 1);
+  }
+
+  .machine-type-guide-jaw {
+    position: absolute;
+    top: 0;
+    width: 4px;
+    height: 100%;
+    background: linear-gradient(180deg, var(--trim), color-mix(in srgb, var(--trim) 45%, black));
+    box-shadow: 0 1px 3px -1px rgba(0, 0, 0, 0.6);
+  }
+
+  .machine-type-guide-jaw-left {
+    left: 0;
+    border-radius: 2px 0 0 2px;
+    clip-path: polygon(0 0, 100% 22%, 100% 100%, 0 100%);
+  }
+
+  .machine-type-guide-jaw-right {
+    right: 0;
+    border-radius: 0 2px 2px 0;
+    clip-path: polygon(0 22%, 100% 0, 100% 100%, 0 100%);
+  }
+
+  /* Front apron, docked to the bottom of the view. Anchored here rather than
+     below the page so it never covers the sheet the writer is filling. */
+  .machine-apron {
+    position: absolute;
+    inset-inline: 0;
     bottom: 0;
-    height: 84px;
-    border-radius: 22px 22px 0 0;
-    background: linear-gradient(to top, rgba(28, 31, 38, 0.5), rgba(48, 52, 62, 0.16));
-    box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.12) inset;
+    height: 54px;
+    background: linear-gradient(180deg, var(--body-shade), var(--body) 55%, color-mix(in srgb, var(--body) 70%, black));
+    border-top: 1px solid var(--body-highlight);
+    box-shadow: 0 -12px 26px -18px rgba(0, 0, 0, 0.9);
+    display: grid;
+    place-items: center;
+  }
+
+  .machine-apron-compact {
+    height: 34px;
+  }
+
+  .machine-apron-lip {
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    height: 6px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), transparent);
+  }
+
+  .machine-nameplate {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    color: var(--plate-ink);
+  }
+
+  .machine-nameplate-mark {
+    font-family: "Cutive Mono", ui-monospace, monospace;
+    font-size: 15px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.45);
+  }
+
+  .machine-nameplate-era {
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    opacity: 0.62;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .machine-spool,
+    .machine-type-guide {
+      transition: none;
+    }
   }
 
 
-  .machine-shell-compact {
-    border-radius: 18px 18px 14px 14px;
-  }
-
-  .machine-shell-compact .machine-frame-top {
-    height: 58px;
-    left: 12%;
-    right: 12%;
-  }
-
-  .machine-shell-compact .machine-frame-sides {
-    inset: 54px 0 88px;
-    border-left-width: 18px;
-    border-right-width: 18px;
-  }
-
-  .machine-shell-compact .machine-paper-window {
-    inset: 56px 24px 86px;
-  }
-
-  .machine-shell-compact .machine-frame-bottom {
-    height: 64px;
-    left: 11%;
-    right: 11%;
-  }
-
-  .machine-shell-minimal {
-    border-radius: 12px;
-    background: linear-gradient(180deg, rgba(34, 38, 46, 0.26), rgba(26, 30, 38, 0.18));
-    box-shadow: 0 8px 18px -18px rgba(0, 0, 0, 0.85), 0 1px 0 rgba(255, 255, 255, 0.12) inset;
-  }
-
-  .machine-shell-minimal .machine-color-wash,
-  .machine-shell-minimal .machine-frame-top,
-  .machine-shell-minimal .machine-frame-sides,
-  .machine-shell-minimal .machine-paper-window,
-  .machine-shell-minimal .machine-frame-bottom {
-    display: none;
-  }
-
-  .machine-shell-minimal .machine-platen-assembly {
-    top: 46px;
-    left: 36px;
-    right: 36px;
-    height: 14px;
-  }
-
-  .machine-shell-minimal .machine-platen-roller {
-    background: linear-gradient(to bottom, rgba(90, 96, 108, 0.45), rgba(30, 35, 44, 0.52));
-  }
-
-  .machine-shell-minimal .machine-ribbon-band {
-    top: 8px;
-    height: 2px;
-    opacity: 0.7;
-  }
-
-  .machine-shell-minimal .machine-strike-shadow {
-    top: 10px;
-    opacity: 0.2;
-  }
   .typewriter-caret {
     width: 0.58em;
     height: 1.18em;

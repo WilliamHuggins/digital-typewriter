@@ -1,7 +1,9 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 import type { ResponsiveTier } from '../lib/responsive';
 import { cn, pseudoRandom } from '../lib/utils';
-import { MODELS, RIBBONS, DEFAULT_EMPHASIS, type CharEmphasis, type CharFormat } from '../lib/machines';
+import { MODELS, RIBBONS, DEFAULT_EMPHASIS, typeMetricsFor, MODEL_FONT_STACKS, type CharEmphasis, type CharFormat } from '../lib/machines';
+import { MachineChassis } from './MachineChassis';
+import { useTypePitch } from '../hooks/useTypePitch';
 import type { TypewriterDocument } from '../hooks/useTypewriterDocument';
 import { classifyKey, type EditKind } from '../lib/history';
 import { type AudioStatus, audioEngine } from '../lib/audio';
@@ -93,6 +95,10 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentSt
   const [carriageLocked, setCarriageLocked] = useState(false);
   const lockTimeoutRef = useRef<number | null>(null);
 
+  // Notch count for the ribbon spools; every strike advances the ribbon a
+  // little so the spools turn while the writer works.
+  const [ribbonTurn, setRibbonTurn] = useState(0);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const bellArmedRef = useRef(true);
   const typeMotionTimeoutRef = useRef<number | null>(null);
@@ -100,27 +106,30 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentSt
   /** What produced the pending edit, so history knows whether to coalesce. */
   const pendingEditKindRef = useRef<EditKind>('type');
 
+  /**
+   * Where the next character actually lands.
+   *
+   * The hidden textarea's own caret cannot answer this. Printable keys are
+   * preventDefault'ed, so the caret only moves when React re-renders — and a
+   * fast typist can land several keystrokes inside one render, at which point
+   * every one of them reads the same stale position and overstrikes the same
+   * cell. These refs are advanced synchronously on every commit, and resynced
+   * from state after each render.
+   */
+  const liveTextRef = useRef(text);
+  const liveCursorRef = useRef(cursorPos);
+
+  useEffect(() => {
+    liveTextRef.current = text;
+    liveCursorRef.current = cursorPos;
+  }, [text, cursorPos]);
+
   const activeModel = MODELS[model];
 
   const isDesktop = responsiveTier === 'desktop';
   const isTablet = responsiveTier === 'tablet';
   const isMobile = responsiveTier === 'mobile';
 
-  const machineShellMode: 'immersive' | 'compact' | 'minimal' = isDesktop ? 'immersive' : isTablet ? 'compact' : 'minimal';
-
-  const modelChassisPalette: Record<keyof typeof MODELS, {
-    warm: string;
-    cool: string;
-    base: string;
-  }> = {
-    remington: { warm: '150, 94, 58', cool: '66, 96, 146', base: '126, 88, 54' },
-    underwood: { warm: '130, 86, 52', cool: '82, 108, 138', base: '122, 96, 68' },
-    royal: { warm: '132, 62, 50', cool: '68, 90, 126', base: '112, 76, 64' },
-    olivetti: { warm: '180, 112, 66', cool: '72, 118, 142', base: '138, 112, 76' },
-    ibm: { warm: '118, 86, 62', cool: '92, 126, 160', base: '94, 110, 132' },
-  };
-
-  const chassisPalette = modelChassisPalette[model];
   const activeRibbon = RIBBONS[ribbon];
   const wearLevel = activeModel.wear;
 
@@ -136,6 +145,12 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentSt
   // Document model – the single source of truth for page/line layout
   // ---------------------------------------------------------------------------
 
+  // Type metrics belong to the machine, not to the app. Pica cuts about 63
+  // characters to a line; elite fits 76 in the same margins. Changing machine
+  // therefore changes the document, not just its texture.
+  const typeMetrics = typeMetricsFor(model);
+  const pitch = useTypePitch(MODEL_FONT_STACKS[model], typeMetrics.fontSize, typeMetrics.charWidth);
+
   const pageSpec: PageSpec = useMemo(() => {
     const paper = PAPER_SIZES[paperSize];
     const margins = marginPreset === 'custom'
@@ -148,6 +163,8 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentSt
       marginBottom: margins.marginBottom,
       marginLeft: margins.marginLeft,
       marginRight: margins.marginRight,
+      charWidth: typeMetrics.charWidth,
+      baseLineHeight: typeMetrics.baseLineHeight,
       lineSpacing,
     };
     // Validate and fall back to normal margins if the combination is degenerate
@@ -160,7 +177,7 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentSt
       spec.marginRight = fallback.marginRight;
     }
     return spec;
-  }, [lineSpacing, paperSize, marginPreset, customMargins]);
+  }, [lineSpacing, paperSize, marginPreset, customMargins, typeMetrics.charWidth, typeMetrics.baseLineHeight]);
 
   const doc: DocumentModel = useMemo(
     () => layoutDocument(text, pageSpec),
@@ -440,8 +457,12 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentSt
   // Input handlers (textarea still captures input; layout comes from doc model)
   // ---------------------------------------------------------------------------
 
-  const restoreSnapshotSelection = (snapshot: { cursorPos: number } | null) => {
+  const restoreSnapshotSelection = (snapshot: { text: string; cursorPos: number } | null) => {
     if (!snapshot) return;
+    // Undo replaces the document wholesale, so the live cursor has to jump with
+    // it rather than wait for the resync effect.
+    liveTextRef.current = snapshot.text;
+    liveCursorRef.current = snapshot.cursorPos;
     setSelectionStart(snapshot.cursorPos);
     setSelectionEnd(snapshot.cursorPos);
     setViewingPage(null);
@@ -475,7 +496,8 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentSt
 
     const soundReady = audioEnabled && audioStatus === 'ready';
     const isPrintable = e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey && !e.nativeEvent.isComposing;
-    const nextCursorPos = target.selectionStart + 1;
+    const strikeAt = liveCursorRef.current;
+    const nextCursorPos = strikeAt + 1;
 
     if (isPrintable) {
       e.preventDefault();
@@ -487,8 +509,9 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentSt
         return;
       }
 
-      triggerStrikeEffect(target.selectionStart);
+      triggerStrikeEffect(strikeAt);
       triggerTypingMotion();
+      setRibbonTurn((turn) => turn + 1);
       maybePlayBell(nextCursorPos, soundReady);
 
       if (soundReady) {
@@ -518,8 +541,8 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentSt
 
       if (
         shouldRearmBellAfterCursorOrEdit(
-          text,
-          target.selectionStart,
+          liveTextRef.current,
+          liveCursorRef.current,
           audioEngine.getBellColumns(metrics.maxCharsPerLine, model)
         )
       ) {
@@ -545,17 +568,21 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentSt
       return false;
     }
 
+    // Diff against the live text, not the rendered prop, so a burst of
+    // keystrokes inside one render each builds on the last.
+    const prevText = liveTextRef.current;
+
     let prefixLen = 0;
-    while (prefixLen < text.length && prefixLen < newText.length && text[prefixLen] === newText[prefixLen]) {
+    while (prefixLen < prevText.length && prefixLen < newText.length && prevText[prefixLen] === newText[prefixLen]) {
       prefixLen++;
     }
 
     let suffixLen = 0;
-    while (suffixLen < text.length - prefixLen && suffixLen < newText.length - prefixLen && text[text.length - 1 - suffixLen] === newText[newText.length - 1 - suffixLen]) {
+    while (suffixLen < prevText.length - prefixLen && suffixLen < newText.length - prefixLen && prevText[prevText.length - 1 - suffixLen] === newText[newText.length - 1 - suffixLen]) {
       suffixLen++;
     }
 
-    const oldReplacedLen = text.length - prefixLen - suffixLen;
+    const oldReplacedLen = prevText.length - prefixLen - suffixLen;
     const newInsertedLen = newText.length - prefixLen - suffixLen;
 
     const nextFormats = [...charFormats];
@@ -585,6 +612,9 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentSt
 
       return incrementRibbonWear(prev, newInsertedLen, ribbon, lineLedger);
     });
+
+    liveTextRef.current = newText;
+    liveCursorRef.current = nextSelectionStart;
 
     documentState.commit(
       {
@@ -628,11 +658,18 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentSt
    * replaces it. Returns false if the margin stop refused the strike.
    */
   const applyManualStrike = (key: string, target: HTMLTextAreaElement): boolean => {
-    const start = target.selectionStart;
-    const end = target.selectionEnd;
+    const text = liveTextRef.current;
+    // A live selection still comes from the textarea — the browser owns
+    // dragging and shift-arrow — but a collapsed caret comes from our own
+    // bookkeeping, which is the only thing that keeps up with fast typing.
+    const hasSelection = target.selectionStart !== target.selectionEnd;
+    const start = hasSelection ? target.selectionStart : liveCursorRef.current;
+    const end = hasSelection ? target.selectionEnd : start;
 
     const commitOverstrike = (newText: string, nextEmphasis: CharEmphasis[]) => {
       const nextPos = start + 1;
+      liveTextRef.current = newText;
+      liveCursorRef.current = nextPos;
       documentState.commit(
         { text: newText, charFormats, charEmphasis: nextEmphasis, cursorPos: nextPos },
         'type',
@@ -849,12 +886,17 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentSt
                   activeModel.font,
                   activeRibbon !== 'ink-stencil' && activeRibbon,
                   activeRibbon === 'ink-stencil' && 'ink-stencil',
-                  "ink-bleed paper-sheet text-[15px] tracking-[0.01em] whitespace-pre pointer-events-auto"
+                  "ink-bleed paper-sheet whitespace-pre pointer-events-auto"
                 )}
                 style={{
                   width: `${pageSpec.paper.width}px`,
                   height: `${pageSpec.paper.height}px`,
                   padding: `${pageSpec.marginTop}px ${pageSpec.marginRight}px ${pageSpec.marginBottom}px ${pageSpec.marginLeft}px`,
+                  fontSize: `${typeMetrics.fontSize}px`,
+                  // Trims each glyph's natural advance to the machine's pitch,
+                  // so a line of text ends exactly where the layout engine and
+                  // the margin guides say it should.
+                  letterSpacing: `${pitch.letterSpacing}px`,
                   lineHeight: `${metrics.lineHeight}px`
                 }}
               >
@@ -1030,38 +1072,21 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentSt
           </div>
         </div>
 
-        {/* Machine window/chassis – frames paper without obscuring typing area */}
-        <div
-          className={cn('absolute left-0 w-full pointer-events-none flex justify-center z-20', machineShellMode === 'minimal' && 'opacity-45')}
-          style={{
-            top: `${TYPING_OFFSET_Y - pageSpec.marginTop - 70}px`,
-            height: `${pageSpec.paper.height + 140}px`,
-          }}
-        >
-          <div
-            className={cn('typewriter-machine-frame', `machine-model-${model}`, machineShellMode === 'compact' && 'machine-shell-compact', machineShellMode === 'minimal' && 'machine-shell-minimal')}
-            style={{
-              width: `${pageSpec.paper.width + 124}px`,
-              transform: guideTransform,
-              transformOrigin: 'center',
-              ['--machine-warm' as string]: chassisPalette.warm,
-              ['--machine-cool' as string]: chassisPalette.cool,
-              ['--machine-base' as string]: chassisPalette.base,
-            }}
-            aria-hidden="true"
-          >
-            <div className="machine-color-wash" />
-            <div className="machine-frame-top" />
-            <div className="machine-frame-sides" />
-            <div className="machine-paper-window" />
-            <div className="machine-platen-assembly">
-              <div className="machine-platen-roller" />
-              <div className="machine-ribbon-band" />
-              <div className="machine-strike-shadow" />
-            </div>
-            <div className="machine-frame-bottom" />
-          </div>
-        </div>
+        <MachineChassis
+          model={model}
+          ribbon={ribbon}
+          paperWidth={pageSpec.paper.width}
+          printingLineY={TYPING_OFFSET_Y}
+          lineHeight={metrics.lineHeight}
+          strikeX={carriageCueX}
+          scale={scale}
+          carriageX={motionState.carriageOffsetX + carriageTravelOffset}
+          offsetX={motionState.machineOffsetX}
+          offsetY={motionState.machineOffsetY}
+          ribbonTurn={ribbonTurn}
+          compact={!isDesktop}
+          reducedMotion={prefersReducedMotion}
+        />
 
         {/* Typewriter Guide overlay */}
         <div
