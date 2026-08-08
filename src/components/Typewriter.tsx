@@ -1,12 +1,17 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 import type { ResponsiveTier } from '../lib/responsive';
 import { cn, pseudoRandom } from '../lib/utils';
-import { MODELS, RIBBONS, DEFAULT_EMPHASIS, typeMetricsFor, MODEL_FONT_STACKS, type CharEmphasis, type CharFormat } from '../lib/machines';
+import {
+  MODELS, RIBBONS, DEFAULT_EMPHASIS, typeMetricsFor, MODEL_FONT_STACKS,
+  resolveKeystroke, describeSubstitution,
+  type CharEmphasis, type CharFormat,
+} from '../lib/machines';
 import { MachineChassis } from './MachineChassis';
 import { MarginRuler } from './MarginRuler';
 import { useTypePitch } from '../hooks/useTypePitch';
 import type { TypewriterDocument } from '../hooks/useTypewriterDocument';
 import { classifyKey, type EditKind } from '../lib/history';
+import { computeStats } from '../lib/exporters';
 import { type AudioStatus, audioEngine } from '../lib/audio';
 import {
   canApplyTextWithinMaxColumns,
@@ -56,9 +61,25 @@ interface TypewriterProps {
   paperRef: React.RefObject<HTMLDivElement>;
   /** Applied when the writer drags a margin stop along the scale */
   onMarginStopsChange: (next: { marginLeft: number; marginRight: number }) => void;
+  /** Surfaces a short explanation, e.g. why a key struck a different glyph */
+  onNotice: (message: string, tone: 'ok' | 'error') => void;
+  /** Lets the toolbar drive X-out and correction over the current selection */
+  onSelectionActions: (actions: SelectionActions | null) => void;
   onDocumentModelChange?: (doc: DocumentModel) => void;
   onRibbonWearChange?: (state: import('../lib/ribbonWear').RibbonWearState) => void;
   disableBackspaceDelete: boolean;
+}
+
+/** What the toolbar can do to whatever the writer has selected. */
+export interface SelectionActions {
+  /** Number of characters currently selected */
+  count: number;
+  /** Strike an X through the selection, leaving the words readable underneath */
+  xOut: () => void;
+  /** Paint the selection out with correction fluid */
+  correct: () => void;
+  /** Undo either treatment */
+  clear: () => void;
 }
 
 interface MechanicalMotionState {
@@ -68,7 +89,7 @@ interface MechanicalMotionState {
   machineOffsetY: number;
 }
 
-export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentState, model, ribbon, audioEnabled, audioStatus, volume, lineSpacing, paperSize, marginPreset, customMargins, paperRef, onMarginStopsChange, onDocumentModelChange, onRibbonWearChange, disableBackspaceDelete }: TypewriterProps) {
+export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentState, model, ribbon, audioEnabled, audioStatus, volume, lineSpacing, paperSize, marginPreset, customMargins, paperRef, onMarginStopsChange, onNotice, onSelectionActions, onDocumentModelChange, onRibbonWearChange, disableBackspaceDelete }: TypewriterProps) {
   // The document itself lives in `useTypewriterDocument` so the toolbar can act
   // on it too; these are read-only views onto that state.
   const { text, charFormats, charEmphasis, cursorPos } = documentState;
@@ -108,6 +129,8 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentSt
   const returnMotionTimeoutsRef = useRef<number[]>([]);
   /** What produced the pending edit, so history knows whether to coalesce. */
   const pendingEditKindRef = useRef<EditKind>('type');
+  /** Keyboard substitutions already explained, so the notice appears once. */
+  const announcedSubstitutionsRef = useRef(new Set<string>());
 
   /**
    * Where the next character actually lands.
@@ -128,6 +151,21 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentSt
   }, [text, cursorPos]);
 
   const activeModel = MODELS[model];
+
+  // Session tally for the front rail. The clock starts when the component
+  // mounts and ticks a minute at a time — a counter that updated every second
+  // would be a distraction on a machine meant for drafting.
+  const sessionStartRef = useRef(Date.now());
+  const [elapsedMinutes, setElapsedMinutes] = useState(0);
+
+  useEffect(() => {
+    const tick = () => setElapsedMinutes(Math.floor((Date.now() - sessionStartRef.current) / 60_000));
+    const handle = window.setInterval(tick, 15_000);
+    tick();
+    return () => window.clearInterval(handle);
+  }, []);
+
+  const stats = useMemo(() => computeStats(text), [text]);
 
   const isDesktop = responsiveTier === 'desktop';
   const isTablet = responsiveTier === 'tablet';
@@ -565,6 +603,8 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentSt
     nextSelectionStart: number,
     nextSelectionEnd: number,
     kind: EditKind = pendingEditKindRef.current,
+    /** Emphasis to stamp onto the characters this edit inserts */
+    insertedEmphasis?: Partial<CharEmphasis>,
   ): boolean => {
     if (!canApplyTextWithinMaxColumns(newText, metrics.maxCharsPerLine)) {
       signalCarriageLock();
@@ -599,7 +639,10 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentSt
     nextEmphasis.splice(
       prefixLen,
       oldReplacedLen,
-      ...Array.from({ length: newInsertedLen }, (): CharEmphasis => ({ ...DEFAULT_EMPHASIS })),
+      ...Array.from({ length: newInsertedLen }, (): CharEmphasis => ({
+        ...DEFAULT_EMPHASIS,
+        ...insertedEmphasis,
+      })),
     );
 
     setRibbonWearState(prev => {
@@ -660,7 +703,22 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentSt
    * repeating the same letter darkens it, `_` underlines it, anything else
    * replaces it. Returns false if the margin stop refused the strike.
    */
-  const applyManualStrike = (key: string, target: HTMLTextAreaElement): boolean => {
+  const applyManualStrike = (rawKey: string, target: HTMLTextAreaElement): boolean => {
+    // What the machine actually strikes may not be what was pressed: an
+    // Underwood has no figure 1, and no machine of its age has an exclamation
+    // mark. Resolve the keypress against this machine's real keyboard first.
+    const struck = resolveKeystroke(model, rawKey);
+    const key = struck.char;
+    const composite: Partial<CharEmphasis> | undefined = struck.overstrike
+      ? { overstrike: struck.overstrike }
+      : undefined;
+
+    if (struck.substitutedFor && !announcedSubstitutionsRef.current.has(`${model}:${rawKey}`)) {
+      announcedSubstitutionsRef.current.add(`${model}:${rawKey}`);
+      const explanation = describeSubstitution(model, rawKey);
+      if (explanation) onNotice(explanation, 'ok');
+    }
+
     const text = liveTextRef.current;
     // A live selection still comes from the textarea — the browser owns
     // dragging and shift-arrow — but a collapsed caret comes from our own
@@ -685,7 +743,7 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentSt
 
     if (start !== end) {
       const newText = `${text.slice(0, start)}${key}${text.slice(end)}`;
-      return applyTextUpdate(newText, start + 1, start + 1, 'replace');
+      return applyTextUpdate(newText, start + 1, start + 1, 'replace', composite);
     }
 
     if (start < text.length && text[start] !== '\n') {
@@ -707,12 +765,53 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentSt
       }
 
       const newText = `${text.slice(0, start)}${key}${text.slice(start + 1)}`;
-      return applyTextUpdate(newText, start + 1, start + 1, 'type');
+      return applyTextUpdate(newText, start + 1, start + 1, 'type', composite);
     }
 
     const newText = `${text.slice(0, start)}${key}${text.slice(start)}`;
-    return applyTextUpdate(newText, start + 1, start + 1, 'type');
+    return applyTextUpdate(newText, start + 1, start + 1, 'type', composite);
   };
+
+  // ---------------------------------------------------------------------------
+  // Cancelling text the way the machine allows
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Apply a treatment to every character in the selection.
+   *
+   * With Backspace Lock on there is no delete key, so this is the only way to
+   * retract a sentence — which is exactly the position a typist was in. X-ing
+   * out leaves the words legible under the strikes; correction fluid does not.
+   */
+  const treatSelection = (patch: Partial<CharEmphasis>) => {
+    if (selectionStart === selectionEnd) return;
+
+    const next = [...charEmphasis];
+    for (let i = selectionStart; i < selectionEnd; i++) {
+      if (text[i] === '\n') continue;
+      next[i] = { ...(next[i] ?? DEFAULT_EMPHASIS), ...patch };
+    }
+
+    documentState.commit({ text, charFormats, charEmphasis: next, cursorPos }, 'replace');
+    setRibbonWearState(prev => incrementRibbonWear(prev, selectionEnd - selectionStart, ribbon));
+  };
+
+  useEffect(() => {
+    if (selectionStart === selectionEnd) {
+      onSelectionActions(null);
+      return;
+    }
+
+    onSelectionActions({
+      count: selectionEnd - selectionStart,
+      xOut: () => treatSelection({ overstrike: 'x', corrected: false }),
+      correct: () => treatSelection({ corrected: true, overstrike: undefined }),
+      clear: () => treatSelection({ corrected: false, overstrike: undefined }),
+    });
+    // treatSelection closes over the current document; re-registering on every
+    // relevant change keeps the toolbar acting on what is actually selected.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectionStart, selectionEnd, text, charEmphasis, charFormats, cursorPos]);
 
   const handleSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
     const target = e.target as HTMLTextAreaElement;
@@ -823,16 +922,42 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentSt
           </button>
         </div>
         <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-          {doc.pages.map((_, idx) => (
+          {doc.pages.map((page, idx) => (
             <button
               key={idx}
               onClick={() => setViewingPage(idx)}
+              aria-label={`Go to page ${idx + 1} of ${doc.pageCount}`}
+              aria-current={activePageIdx === idx}
               className={cn(
-                "aspect-[8.5/11] w-full bg-[#f4f1ea] rounded-[2px] shadow-md flex items-center justify-center text-neutral-400 transition-all border border-[#d9d2c2]",
-                activePageIdx === idx ? "ring-2 ring-blue-500 opacity-100" : "opacity-50 hover:opacity-80"
+                'page-thumb w-full rounded-[2px] shadow-md transition-all border border-[#d9d2c2] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300',
+                activePageIdx === idx ? 'ring-2 ring-blue-500 opacity-100' : 'opacity-60 hover:opacity-90',
               )}
+              style={{ aspectRatio: `${pageSpec.paper.width} / ${pageSpec.paper.height}` }}
             >
-              <span className="font-mono text-xl">{idx + 1}</span>
+              {/* The real page, shrunk. A thumbnail that shows nothing about
+                  its page is not worth the rail it sits in. */}
+              <span
+                className={cn('page-thumb-sheet', activeModel.font)}
+                style={{
+                  width: `${pageSpec.paper.width}px`,
+                  height: `${pageSpec.paper.height}px`,
+                  padding: `${pageSpec.marginTop}px ${pageSpec.marginRight}px ${pageSpec.marginBottom}px ${pageSpec.marginLeft}px`,
+                  fontSize: `${typeMetrics.fontSize}px`,
+                  letterSpacing: `${pitch.letterSpacing}px`,
+                  lineHeight: `${metrics.lineHeight}px`,
+                  transform: `scale(var(--thumb-scale))`,
+                }}
+                aria-hidden="true"
+              >
+                {page.lines.map((line, lineIndex) => (
+                  <span key={lineIndex} className="page-thumb-line" style={{ height: `${metrics.lineHeight}px` }}>
+                    {line.tokens
+                      .map((token) => (token.type === 'word' ? token.text : token.type === 'space' ? ' ' : ''))
+                      .join('')}
+                  </span>
+                ))}
+              </span>
+              <span className="page-thumb-number">{idx + 1}</span>
             </button>
           ))}
         </div>
@@ -962,6 +1087,10 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentSt
                             const charRibbon = RIBBONS[format.ribbon];
                             const isSelected = token.index >= selectionStart && token.index < selectionEnd;
                             const isSpaceStruck = strikeEffect !== null && strikeEffect.charIndex === token.index;
+                            // Correction fluid covers the gaps between words too;
+                            // X-ing out historically did not, so spaces take the
+                            // patch but never the overstrike.
+                            const spaceCorrected = charEmphasis[token.index]?.corrected ?? false;
 
                             return (
                               <span
@@ -986,6 +1115,7 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentSt
                                   <span className="typewriter-caret absolute left-0 mt-[1px]" />
                                 )}
                                 {' '}
+                                {spaceCorrected && <span className="correction-patch" aria-hidden="true" />}
                                 {isSpaceStruck && (
                                   <span className={cn("ribbon-contact", ribbonContactClass[format.ribbon] || 'ribbon-contact-black')} />
                                 )}
@@ -1015,7 +1145,12 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentSt
                                     textDecorationThickness: emphasis.underline ? '1px' : undefined,
                                     textUnderlineOffset: emphasis.underline ? '2px' : undefined,
                                     fontWeight: emphasis.strikeCount > 1 ? 700 : undefined,
-                                    opacity: Math.min(1, 0.84 + (emphasis.strikeCount - 1) * 0.08),
+                                    // Correction fluid buries the glyph; a
+                                    // hint of it still shows through, as it does
+                                    // on paper.
+                                    opacity: emphasis.corrected
+                                      ? 0.14
+                                      : Math.min(1, 0.84 + (emphasis.strikeCount - 1) * 0.08),
                                   };
 
                                   const isStruck = strikeEffect !== null && strikeEffect.charIndex === charPos;
@@ -1055,6 +1190,16 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentSt
                                           </>
                                         )}
                                       </span>
+                                      {emphasis.corrected && <span className="correction-patch" aria-hidden="true" />}
+                                      {emphasis.overstrike && (
+                                        <span
+                                          className={cn('char-overstrike', charModel.font)}
+                                          style={{ opacity: baseStyle.opacity }}
+                                          aria-hidden="true"
+                                        >
+                                          {emphasis.overstrike}
+                                        </span>
+                                      )}
                                       {isCursorOnThisLine && isLastToken && charIndex === token.text.length - 1 && cursorPos === charPos + 1 && selectionStart === selectionEnd && (
                                         <span className="typewriter-caret absolute right-0 translate-x-full mt-[1px]" />
                                       )}
@@ -1107,6 +1252,7 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentSt
           ribbonTurn={ribbonTurn}
           compact={!isDesktop}
           reducedMotion={prefersReducedMotion}
+          counter={{ words: stats.words, pages: doc.pageCount, minutes: elapsedMinutes }}
         />
 
         {/* Typewriter Guide overlay */}

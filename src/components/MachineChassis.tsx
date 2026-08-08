@@ -31,6 +31,8 @@ interface MachineChassisProps {
   /** Drops the platen furniture back on small screens */
   compact: boolean;
   reducedMotion: boolean;
+  /** Live session tally shown on the front rail */
+  counter: { words: number; pages: number; minutes: number };
 }
 
 const RIBBON_INK: Record<RibbonKey, string> = {
@@ -67,6 +69,7 @@ export function MachineChassis({
   ribbonTurn,
   compact,
   reducedMotion,
+  counter,
 }: MachineChassisProps) {
   const chassis = CHASSIS[model];
   const machine = MODELS[model];
@@ -208,6 +211,22 @@ export function MachineChassis({
         <div className="machine-nameplate">
           <span className="machine-nameplate-mark">{chassis.nameplate}</span>
           {!compact && <span className="machine-nameplate-era">{machine.era}</span>}
+        </div>
+
+        {/* What the session has produced, struck into the rail beside the mark. */}
+        <div className="machine-counter">
+          <span className="machine-counter-cell">
+            <span className="machine-counter-value">{counter.words.toLocaleString()}</span>
+            <span className="machine-counter-unit">{counter.words === 1 ? 'word' : 'words'}</span>
+          </span>
+          <span className="machine-counter-cell">
+            <span className="machine-counter-value">{counter.pages}</span>
+            <span className="machine-counter-unit">{counter.pages === 1 ? 'page' : 'pages'}</span>
+          </span>
+          <span className="machine-counter-cell">
+            <span className="machine-counter-value">{counter.minutes}</span>
+            <span className="machine-counter-unit">min</span>
+          </span>
         </div>
       </div>
     </div>

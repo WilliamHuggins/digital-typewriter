@@ -456,6 +456,34 @@
     55%, 100% { opacity: 0.08; }
   }
 
+  /* A second glyph struck into the same cell: the X of a cancelled word, or
+     the full stop under an apostrophe that older machines used for an
+     exclamation mark. Sits exactly on the base glyph rather than beside it. */
+  .char-overstrike {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+    color: currentColor;
+    z-index: 12;
+  }
+
+  /* Correction fluid: an opaque patch of not-quite-paper, brushed on slightly
+     off-register the way it always ends up. */
+  .correction-patch {
+    position: absolute;
+    inset: -1px -0.5px 0px -0.5px;
+    z-index: 11;
+    pointer-events: none;
+    border-radius: 1px;
+    background:
+      linear-gradient(178deg, rgba(250, 247, 240, 0.96), rgba(243, 239, 228, 0.98));
+    box-shadow:
+      0 0 1px rgba(150, 138, 116, 0.45),
+      inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  }
+
   /* -----------------------------------------------------------------------
    * Type-strike effect system
    * Three layered effects triggered per keystroke:
@@ -829,4 +857,96 @@
   }
 
   .margin-ruler-readout-columns { color: #a8a294; }
+}
+
+@layer utilities {
+  /* -----------------------------------------------------------------------
+   * Page thumbnails
+   *
+   * The rail used to show a white rectangle with a number in it, which told
+   * the writer nothing about the page it stood for. These render the page's
+   * real lines, scaled to the rail's width.
+   * ----------------------------------------------------------------------- */
+
+  .page-thumb {
+    --thumb-scale: 0.25;
+    position: relative;
+    display: block;
+    overflow: hidden;
+    background-color: #f3efe5;
+    background-image: radial-gradient(120% 100% at 50% 0%, rgba(255, 255, 255, 0.45), rgba(232, 226, 212, 0.25));
+  }
+
+  .page-thumb-sheet {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: block;
+    transform-origin: top left;
+    white-space: pre;
+    color: #2b2a26;
+    /* Type this small renders as mush with hinting on; smoothing keeps the
+       block of text readable as texture rather than noise. */
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeSpeed;
+  }
+
+  .page-thumb-line {
+    display: block;
+    overflow: hidden;
+  }
+
+  .page-thumb-number {
+    position: absolute;
+    right: 4px;
+    bottom: 3px;
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    line-height: 1;
+    padding: 2px 4px;
+    border-radius: 2px;
+    color: #6b6355;
+    background: rgba(255, 253, 248, 0.85);
+    box-shadow: 0 1px 2px rgba(70, 60, 44, 0.18);
+  }
+
+  /* -----------------------------------------------------------------------
+   * Session counter on the front rail
+   * ----------------------------------------------------------------------- */
+
+  .machine-counter {
+    position: absolute;
+    right: 18px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    font-family: ui-monospace, "Courier Prime", monospace;
+    color: var(--plate-ink);
+    opacity: 0.72;
+  }
+
+  .machine-counter-cell {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+  }
+
+  .machine-counter-value {
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+  }
+
+  .machine-counter-unit {
+    font-size: 8px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    opacity: 0.66;
+  }
+
+  @media (max-width: 900px) {
+    .machine-counter { display: none; }
+  }
 }

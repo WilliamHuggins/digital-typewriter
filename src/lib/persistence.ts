@@ -85,9 +85,13 @@ export function parseSheet(raw: unknown): PersistedSheet | null {
     ? (o.charEmphasis as unknown[]).slice(0, text.length).map((entry): CharEmphasis => {
         const e = entry as Record<string, unknown> | null;
         const strikes = e?.strikeCount;
+        const over = e?.overstrike;
         return {
           strikeCount: isFiniteNumber(strikes) ? Math.max(1, Math.floor(strikes)) : 1,
           underline: Boolean(e?.underline),
+          // An overstrike is a single glyph; anything longer is not one.
+          overstrike: typeof over === 'string' && over.length === 1 ? over : undefined,
+          corrected: Boolean(e?.corrected),
         };
       })
     : [];

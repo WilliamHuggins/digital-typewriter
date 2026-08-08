@@ -2,11 +2,13 @@ import React, { useEffect, useState } from 'react';
 import {
   Volume2, VolumeX, Download, Type, Palette, AlignJustify, FileText, Columns,
   Eraser, Menu, X, Settings2, Undo2, Redo2, FilePlus2, ClipboardCopy, Check, AlertTriangle,
+  XSquare, Droplet, RotateCcw,
 } from 'lucide-react';
 import { type AudioStatus } from '../lib/audio';
 import type { ResponsiveTier } from '../lib/responsive';
 import { MODELS, MODEL_KEYS, RIBBONS, RIBBON_LABELS, RIBBON_KEYS, type ModelKey, type RibbonKey } from '../lib/machines';
 import { MachineSelect } from './MachineSelect';
+import type { SelectionActions } from './Typewriter';
 import type { SaveState } from '../hooks/useTypewriterDocument';
 import { isDriveConfigured } from '../lib/googleDrive';
 import { DriveSaveButton } from './DriveSaveButton';
@@ -71,6 +73,7 @@ interface ToolbarProps {
   driveFilename: () => string;
   onNotice: (message: string, tone: 'ok' | 'error') => void;
   notice: ToolbarNotice | null;
+  selectionActions: SelectionActions | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -179,7 +182,7 @@ export function Toolbar({
   saveState, saveError,
   canUndo, canRedo, onUndo, onRedo, onNewSheet,
   onExportTXT, onCopyText, onExportPNG, onExportPDF,
-  driveContents, driveFilename, onNotice, notice,
+  driveContents, driveFilename, onNotice, notice, selectionActions,
 }: ToolbarProps) {
   const [isMobileControlsOpen, setIsMobileControlsOpen] = useState(false);
   const driveAvailable = isDriveConfigured();
@@ -379,6 +382,39 @@ export function Toolbar({
               <Eraser size={14} aria-hidden="true" />
               {disableBackspaceDelete ? 'Backspace Lock On' : 'Backspace Lock Off'}
             </button>
+
+            {/* Cancelling text the way the machine allows. With Backspace Lock
+                on these are the only ways to retract a sentence — which is
+                exactly the position a typist was in. */}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => selectionActions?.xOut()}
+                disabled={!selectionActions}
+                className={iconButton}
+                title={selectionActions ? `X out ${selectionActions.count} characters` : 'Select text to X it out'}
+                aria-label="X out the selection"
+              >
+                <XSquare size={16} />
+              </button>
+              <button
+                onClick={() => selectionActions?.correct()}
+                disabled={!selectionActions}
+                className={iconButton}
+                title={selectionActions ? `Paint out ${selectionActions.count} characters` : 'Select text to paint it out'}
+                aria-label="Correct the selection"
+              >
+                <Droplet size={16} />
+              </button>
+              <button
+                onClick={() => selectionActions?.clear()}
+                disabled={!selectionActions}
+                className={iconButton}
+                title="Undo the correction on the selection"
+                aria-label="Clear corrections from the selection"
+              >
+                <RotateCcw size={16} />
+              </button>
+            </div>
 
             <div className="ml-auto flex items-center gap-2">
               <button onClick={onExportTXT} className={textButton} title="Download the text to this device">

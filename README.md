@@ -15,6 +15,18 @@ strike irregularity and synthesized sound. Four ribbons, including a stencil.
 - **Types like a machine.** The carriage stops at the right margin and locks
   until you return it, the bell warns you before you get there, and striking the
   same key twice darkens the character instead of inserting another.
+- **Each machine is a different machine.** The Remington, Underwood and Royal
+  type pica — ten characters to the inch, 63 to a line. The Lettera 22 and the
+  Executive type elite, and fit 76. Margins are set by sliding the stops along
+  the scale above the page, as you would on the real thing.
+- **Period-correct keyboards.** The Underwood No. 5 has no figure 1 — press it
+  and the machine strikes a lowercase L, the way typists did. No machine older
+  than the Olivetti has an exclamation mark either; press one and you get an
+  apostrophe with a full stop struck under it.
+- **Cancel text the way the machine allows.** X out a passage and the words stay
+  legible underneath, or paint it out with correction fluid. With Backspace Lock
+  on, these are the only ways to retract a sentence — which is the position a
+  typist was in.
 - **Keeps your work.** Every sheet autosaves to this browser and comes back when
   you reload. Nothing is uploaded anywhere unless you ask it to be.
 - **Lets the words out.** Download as `.txt`, copy to the clipboard, save to your

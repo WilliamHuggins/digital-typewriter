@@ -2,7 +2,7 @@ import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { toPng } from 'html-to-image';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { Toolbar, type ToolbarNotice } from './components/Toolbar';
-import { Typewriter } from './components/Typewriter';
+import { Typewriter, type SelectionActions } from './components/Typewriter';
 import { MODELS, type ModelKey, type RibbonKey } from './lib/machines';
 import { audioEngine, type AudioStatus } from './lib/audio';
 import { resolveResponsiveTier, type ResponsiveTier } from './lib/responsive';
@@ -35,6 +35,7 @@ function TypewriterApp() {
   const [responsiveTier, setResponsiveTier] = useState<ResponsiveTier>('desktop');
   const [mobileKeyboardOpen, setMobileKeyboardOpen] = useState(false);
   const [notice, setNotice] = useState<ToolbarNotice | null>(null);
+  const [selectionActions, setSelectionActions] = useState<SelectionActions | null>(null);
 
   const paperRef = useRef<HTMLDivElement>(null);
   const latestDocRef = useRef<DocumentModel | null>(null);
@@ -85,6 +86,18 @@ function TypewriterApp() {
       audioEngine.init();
     }
   }, [audioEnabled]);
+
+  // The electric machine runs its motor whenever it is switched on; the manuals
+  // stay silent until a key is struck. Re-runs on status too, because the bed
+  // cannot start until the audio context is actually running.
+  useEffect(() => {
+    if (audioEnabled && audioStatus === 'ready') {
+      audioEngine.setAmbientModel(model);
+    } else {
+      audioEngine.stopAmbient();
+    }
+    return () => audioEngine.stopAmbient();
+  }, [model, audioEnabled, audioStatus]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -202,6 +215,7 @@ function TypewriterApp() {
         driveFilename={() => `${fileBaseName()}.txt`}
         onNotice={showNotice}
         notice={notice}
+        selectionActions={selectionActions}
       />
       <Typewriter
         responsiveTier={responsiveTier}
@@ -224,6 +238,8 @@ function TypewriterApp() {
           setCustomMargins({ ...customMargins, marginLeft, marginRight });
           setMarginPreset('custom');
         }}
+        onNotice={showNotice}
+        onSelectionActions={setSelectionActions}
         onDocumentModelChange={(model) => {
           latestDocRef.current = model;
         }}

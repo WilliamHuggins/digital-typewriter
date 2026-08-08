@@ -272,6 +272,108 @@ export interface CharFormat {
 export interface CharEmphasis {
   strikeCount: number;
   underline: boolean;
+  /**
+   * A second glyph struck into the same cell.
+   *
+   * Carries both the X of a cancelled word and the composite punctuation older
+   * machines had no key for — an exclamation mark is an apostrophe with a full
+   * stop struck under it.
+   */
+  overstrike?: string;
+  /** Painted out with correction fluid; the glyph beneath barely shows. */
+  corrected?: boolean;
 }
 
 export const DEFAULT_EMPHASIS: CharEmphasis = { strikeCount: 1, underline: false };
+
+// ---------------------------------------------------------------------------
+// Keyboards
+// ---------------------------------------------------------------------------
+
+/**
+ * What each machine's keyboard could and could not do.
+ *
+ * Early typewriters shipped fewer keys than a modern one, and typists worked
+ * around the gaps with substitutions everybody knew: the Underwood No. 5 has no
+ * figure 1, so you strike a lowercase L, and no exclamation mark, so you strike
+ * an apostrophe, backspace, and strike a full stop underneath it. Those habits
+ * are the reason old manuscripts look the way they do, and modelling them costs
+ * almost nothing.
+ *
+ * The keyboard fills out as the machines get younger, which is roughly how it
+ * happened: the exclamation mark did not become standard until the 1970s.
+ */
+export interface KeyboardDef {
+  /** Glyph the machine lacks → the glyph a typist struck instead */
+  substitutions: Record<string, string>;
+  /** Glyph the machine lacks → two glyphs struck into one cell */
+  composites: Record<string, { base: string; over: string }>;
+}
+
+const NO_EXCLAMATION: KeyboardDef['composites'] = {
+  '!': { base: "'", over: '.' },
+};
+
+export const KEYBOARDS: Record<ModelKey, KeyboardDef> = {
+  // 1915 desk standard: no figure 1, no exclamation mark.
+  underwood: {
+    substitutions: { '1': 'l' },
+    composites: NO_EXCLAMATION,
+  },
+  // 1930s portable: figures are complete by now, punctuation is not.
+  remington: {
+    substitutions: {},
+    composites: NO_EXCLAMATION,
+  },
+  royal: {
+    substitutions: {},
+    composites: NO_EXCLAMATION,
+  },
+  // Post-war machines carry the full keyboard.
+  olivetti: { substitutions: {}, composites: {} },
+  ibm: { substitutions: {}, composites: {} },
+};
+
+export interface StruckKey {
+  /** The glyph that actually lands on the paper */
+  char: string;
+  /** A second glyph struck into the same cell, if this is a composite */
+  overstrike?: string;
+  /** Set when the machine had no key for what was typed */
+  substitutedFor?: string;
+}
+
+/** Resolve a keypress against a machine's actual keyboard. */
+export function resolveKeystroke(model: ModelKey, key: string): StruckKey {
+  const keyboard = KEYBOARDS[model];
+
+  const composite = keyboard.composites[key];
+  if (composite) {
+    return { char: composite.base, overstrike: composite.over, substitutedFor: key };
+  }
+
+  const substitute = keyboard.substitutions[key];
+  if (substitute) {
+    return { char: substitute, substitutedFor: key };
+  }
+
+  return { char: key };
+}
+
+/** One-line explanation of a substitution, shown the first time it happens. */
+export function describeSubstitution(model: ModelKey, key: string): string | null {
+  const machine = MODELS[model];
+  const keyboard = KEYBOARDS[model];
+
+  if (keyboard.composites[key]) {
+    const { base, over } = keyboard.composites[key];
+    return `The ${machine.name} has no ${key} key — struck ${base} over ${over}, the way typists made one.`;
+  }
+
+  const substitute = keyboard.substitutions[key];
+  if (substitute) {
+    return `The ${machine.name} has no ${key} key — struck ${substitute} instead, as typists did.`;
+  }
+
+  return null;
+}

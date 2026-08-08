@@ -139,9 +139,37 @@ describe('parseSheet repairs recoverable damage', () => {
       charEmphasis: [{ strikeCount: -4, underline: 'yes' }, { strikeCount: Number.NaN }],
     });
     assert.deepEqual(parsed?.charEmphasis, [
-      { strikeCount: 1, underline: true },
-      { strikeCount: 1, underline: false },
+      { strikeCount: 1, underline: true, overstrike: undefined, corrected: false },
+      { strikeCount: 1, underline: false, overstrike: undefined, corrected: false },
     ]);
+  });
+
+  it('keeps X-outs and corrections across a reload', () => {
+    const parsed = parseSheet({
+      ...validSheet,
+      version: 1,
+      text: 'ab',
+      charEmphasis: [
+        { strikeCount: 1, underline: false, overstrike: 'x' },
+        { strikeCount: 1, underline: false, corrected: true },
+      ],
+    });
+    assert.equal(parsed?.charEmphasis[0].overstrike, 'x');
+    assert.equal(parsed?.charEmphasis[1].corrected, true);
+  });
+
+  it('drops an overstrike that is not a single glyph', () => {
+    const parsed = parseSheet({
+      ...validSheet,
+      version: 1,
+      text: 'abc',
+      charEmphasis: [
+        { strikeCount: 1, overstrike: 'xxx' },
+        { strikeCount: 1, overstrike: '' },
+        { strikeCount: 1, overstrike: 42 },
+      ],
+    });
+    assert.deepEqual(parsed?.charEmphasis.map((e) => e.overstrike), [undefined, undefined, undefined]);
   });
 
   it('supplies defaults for missing geometry', () => {
