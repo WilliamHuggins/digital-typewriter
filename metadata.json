@@ -1,5 +1,7 @@
 {
   "name": "Digital Typewriter",
-  "description": "A realistic nostalgic digital typewriter web app with mechanical sounds, ink bleed, and PDF export.",
+  "tagline": "An AI Writers Retreat open source writing tool",
+  "description": "A browser typewriter with mechanical sound, a real margin stop, ribbon ink and paper texture. Autosaves locally; exports to text, PDF, PNG or Google Drive.",
+  "license": "MIT",
   "requestFramePermissions": []
 }

@@ -1,7 +1,18 @@
-import React, { useRef, useEffect, useState, useMemo } from 'react';
+import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
 import type { ResponsiveTier } from '../lib/responsive';
 import { cn, pseudoRandom } from '../lib/utils';
-import { MODELS, RIBBONS } from './Toolbar';
+import {
+  MODELS, RIBBONS, DEFAULT_EMPHASIS, typeMetricsFor, MODEL_FONT_STACKS,
+  resolveKeystroke, describeSubstitution,
+  type CharEmphasis, type CharFormat,
+} from '../lib/machines';
+import { MachineChassis } from './MachineChassis';
+import { PageLine } from './PageLine';
+import { MarginRuler } from './MarginRuler';
+import { useTypePitch } from '../hooks/useTypePitch';
+import type { TypewriterDocument } from '../hooks/useTypewriterDocument';
+import { classifyKey, type EditKind } from '../lib/history';
+import { computeStats } from '../lib/exporters';
 import { type AudioStatus, audioEngine } from '../lib/audio';
 import {
   canApplyTextWithinMaxColumns,
@@ -13,6 +24,7 @@ import {
   createRibbonWearState,
   incrementRibbonWear,
   buildLineImpressionLedger,
+  quantizeWear,
 } from '../lib/ribbonWear';
 import {
   DEFAULT_PAGE_SPEC,
@@ -38,6 +50,7 @@ import {
 interface TypewriterProps {
   responsiveTier: ResponsiveTier;
   mobileKeyboardOpen: boolean;
+  doc: TypewriterDocument;
   model: keyof typeof MODELS;
   ribbon: keyof typeof RIBBONS;
   audioEnabled: boolean;
@@ -48,20 +61,43 @@ interface TypewriterProps {
   marginPreset: MarginPresetKey;
   customMargins: CustomMargins;
   paperRef: React.RefObject<HTMLDivElement>;
+  /** Applied when the writer drags a margin stop along the scale */
+  onMarginStopsChange: (next: { marginLeft: number; marginRight: number }) => void;
+  /**
+   * Render every page instead of the window around the active one.
+   *
+   * PNG export captures the page stack rather than the screen, so it needs the
+   * whole document mounted for one frame.
+   */
+  renderAllPages: boolean;
+  /** Surfaces a short explanation, e.g. why a key struck a different glyph */
+  onNotice: (message: string, tone: 'ok' | 'error') => void;
+  /** Lets the toolbar drive X-out and correction over the current selection */
+  onSelectionActions: (actions: SelectionActions | null) => void;
   onDocumentModelChange?: (doc: DocumentModel) => void;
   onRibbonWearChange?: (state: import('../lib/ribbonWear').RibbonWearState) => void;
   disableBackspaceDelete: boolean;
 }
 
-interface CharFormat {
-  model: keyof typeof MODELS;
-  ribbon: keyof typeof RIBBONS;
+/** What the toolbar can do to whatever the writer has selected. */
+export interface SelectionActions {
+  /** Number of characters currently selected */
+  count: number;
+  /** Strike an X through the selection, leaving the words readable underneath */
+  xOut: () => void;
+  /** Paint the selection out with correction fluid */
+  correct: () => void;
+  /** Undo either treatment */
+  clear: () => void;
 }
 
-interface CharEmphasis {
-  strikeCount: number;
-  underline: boolean;
-}
+/** Stable across renders, so it never invalidates a memoised line. */
+const RIBBON_CONTACT_CLASS: Record<string, string> = {
+  black: 'ribbon-contact-black',
+  red: 'ribbon-contact-red',
+  blue: 'ribbon-contact-blue',
+  stencil: 'ribbon-contact-stencil',
+};
 
 interface MechanicalMotionState {
   carriageOffsetX: number;
@@ -70,14 +106,14 @@ interface MechanicalMotionState {
   machineOffsetY: number;
 }
 
-export function Typewriter({ responsiveTier, mobileKeyboardOpen, model, ribbon, audioEnabled, audioStatus, volume, lineSpacing, paperSize, marginPreset, customMargins, paperRef, onDocumentModelChange, onRibbonWearChange, disableBackspaceDelete }: TypewriterProps) {
-  const [text, setText] = useState('');
+export function Typewriter({ responsiveTier, mobileKeyboardOpen, doc: documentState, model, ribbon, audioEnabled, audioStatus, volume, lineSpacing, paperSize, marginPreset, customMargins, paperRef, renderAllPages, onMarginStopsChange, onNotice, onSelectionActions, onDocumentModelChange, onRibbonWearChange, disableBackspaceDelete }: TypewriterProps) {
+  // The document itself lives in `useTypewriterDocument` so the toolbar can act
+  // on it too; these are read-only views onto that state.
+  const { text, charFormats, charEmphasis, cursorPos } = documentState;
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [cursorPos, setCursorPos] = useState(0);
   const [selectionStart, setSelectionStart] = useState(0);
   const [selectionEnd, setSelectionEnd] = useState(0);
-  const [charFormats, setCharFormats] = useState<CharFormat[]>([]);
-  const [charEmphasis, setCharEmphasis] = useState<CharEmphasis[]>([]);
   const [viewingPage, setViewingPage] = useState<number | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [scale, setScale] = useState(1);
@@ -94,46 +130,90 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, model, ribbon, 
   const strikeSeqRef = useRef(0);
   const strikeTimeoutRef = useRef<number | null>(null);
 
+  // The carriage has run into the right margin stop and further keystrokes are
+  // being refused. On the real machine this is unmistakable — the keys physically
+  // lock — so it has to be visible here rather than swallowed silently.
+  const [carriageLocked, setCarriageLocked] = useState(false);
+  const lockTimeoutRef = useRef<number | null>(null);
+
+  // Notch count for the ribbon spools; every strike advances the ribbon a
+  // little so the spools turn while the writer works.
+  const [ribbonTurn, setRibbonTurn] = useState(0);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const bellArmedRef = useRef(true);
   const typeMotionTimeoutRef = useRef<number | null>(null);
   const returnMotionTimeoutsRef = useRef<number[]>([]);
+  /** What produced the pending edit, so history knows whether to coalesce. */
+  const pendingEditKindRef = useRef<EditKind>('type');
+  /** Keyboard substitutions already explained, so the notice appears once. */
+  const announcedSubstitutionsRef = useRef(new Set<string>());
+
+  /**
+   * Where the next character actually lands.
+   *
+   * The hidden textarea's own caret cannot answer this. Printable keys are
+   * preventDefault'ed, so the caret only moves when React re-renders — and a
+   * fast typist can land several keystrokes inside one render, at which point
+   * every one of them reads the same stale position and overstrikes the same
+   * cell. These refs are advanced synchronously on every commit, and resynced
+   * from state after each render.
+   */
+  const liveTextRef = useRef(text);
+  const liveCursorRef = useRef(cursorPos);
+
+  useEffect(() => {
+    liveTextRef.current = text;
+    liveCursorRef.current = cursorPos;
+  }, [text, cursorPos]);
 
   const activeModel = MODELS[model];
+
+  // Session tally for the front rail. The clock starts when the component
+  // mounts and ticks a minute at a time — a counter that updated every second
+  // would be a distraction on a machine meant for drafting.
+  const sessionStartRef = useRef(Date.now());
+  const [elapsedMinutes, setElapsedMinutes] = useState(0);
+
+  useEffect(() => {
+    const tick = () => setElapsedMinutes(Math.floor((Date.now() - sessionStartRef.current) / 60_000));
+    const handle = window.setInterval(tick, 15_000);
+    tick();
+    return () => window.clearInterval(handle);
+  }, []);
+
+  const stats = useMemo(() => computeStats(text), [text]);
 
   const isDesktop = responsiveTier === 'desktop';
   const isTablet = responsiveTier === 'tablet';
   const isMobile = responsiveTier === 'mobile';
 
-  const machineShellMode: 'immersive' | 'compact' | 'minimal' = isDesktop ? 'immersive' : isTablet ? 'compact' : 'minimal';
-
-  const modelChassisPalette: Record<keyof typeof MODELS, {
-    warm: string;
-    cool: string;
-    base: string;
-  }> = {
-    remington: { warm: '150, 94, 58', cool: '66, 96, 146', base: '126, 88, 54' },
-    underwood: { warm: '130, 86, 52', cool: '82, 108, 138', base: '122, 96, 68' },
-    royal: { warm: '132, 62, 50', cool: '68, 90, 126', base: '112, 76, 64' },
-    olivetti: { warm: '180, 112, 66', cool: '72, 118, 142', base: '138, 112, 76' },
-    ibm: { warm: '118, 86, 62', cool: '92, 126, 160', base: '94, 110, 132' },
-  };
-
-  const chassisPalette = modelChassisPalette[model];
   const activeRibbon = RIBBONS[ribbon];
   const wearLevel = activeModel.wear;
 
-  // Map ribbon key to ribbon-contact CSS class
-  const ribbonContactClass: Record<string, string> = {
-    black: 'ribbon-contact-black',
-    red: 'ribbon-contact-red',
-    blue: 'ribbon-contact-blue',
-    stencil: 'ribbon-contact-stencil',
-  };
+  // Map ribbon key to ribbon-contact CSS class. Module-level constant so it
+  // does not defeat the line memo with a fresh identity every render.
+  const ribbonContactClass = RIBBON_CONTACT_CLASS;
+
+  const moveCaretTo = useCallback((position: number) => {
+    documentState.moveCursor(position);
+    setSelectionStart(position);
+    setSelectionEnd(position);
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+      textareaRef.current.setSelectionRange(position, position);
+    }
+  }, [documentState]);
 
   // ---------------------------------------------------------------------------
   // Document model – the single source of truth for page/line layout
   // ---------------------------------------------------------------------------
+
+  // Type metrics belong to the machine, not to the app. Pica cuts about 63
+  // characters to a line; elite fits 76 in the same margins. Changing machine
+  // therefore changes the document, not just its texture.
+  const typeMetrics = typeMetricsFor(model);
+  const pitch = useTypePitch(MODEL_FONT_STACKS[model], typeMetrics.fontSize, typeMetrics.charWidth);
 
   const pageSpec: PageSpec = useMemo(() => {
     const paper = PAPER_SIZES[paperSize];
@@ -147,6 +227,8 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, model, ribbon, 
       marginBottom: margins.marginBottom,
       marginLeft: margins.marginLeft,
       marginRight: margins.marginRight,
+      charWidth: typeMetrics.charWidth,
+      baseLineHeight: typeMetrics.baseLineHeight,
       lineSpacing,
     };
     // Validate and fall back to normal margins if the combination is degenerate
@@ -159,7 +241,7 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, model, ribbon, 
       spec.marginRight = fallback.marginRight;
     }
     return spec;
-  }, [lineSpacing, paperSize, marginPreset, customMargins]);
+  }, [lineSpacing, paperSize, marginPreset, customMargins, typeMetrics.charWidth, typeMetrics.baseLineHeight]);
 
   const doc: DocumentModel = useMemo(
     () => layoutDocument(text, pageSpec),
@@ -187,34 +269,38 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, model, ribbon, 
   const prevModelRef = useRef(model);
   const prevRibbonRef = useRef(ribbon);
 
+  // Changing machine or ribbon while text is selected re-inks that selection,
+  // the way retyping a passage on a different machine would.
   useEffect(() => {
-    if (model !== prevModelRef.current || ribbon !== prevRibbonRef.current) {
-      if (selectionStart !== selectionEnd) {
-        setCharFormats(prev => {
-          const next = [...prev];
-          for (let i = selectionStart; i < selectionEnd; i++) {
-            if (next[i]) {
-              next[i] = {
-                ...next[i],
-                model: model !== prevModelRef.current ? model : next[i].model,
-                ribbon: ribbon !== prevRibbonRef.current ? ribbon : next[i].ribbon
-              };
-            } else {
-              next[i] = { model, ribbon };
-            }
-          }
-          return next;
-        });
-      }
-      prevModelRef.current = model;
-      prevRibbonRef.current = ribbon;
+    if (model === prevModelRef.current && ribbon === prevRibbonRef.current) return;
 
-      if (textareaRef.current) {
-        textareaRef.current.focus();
-        textareaRef.current.setSelectionRange(selectionStart, selectionEnd);
+    const modelChanged = model !== prevModelRef.current;
+    const ribbonChanged = ribbon !== prevRibbonRef.current;
+    prevModelRef.current = model;
+    prevRibbonRef.current = ribbon;
+
+    if (selectionStart !== selectionEnd) {
+      const next = [...charFormats];
+      for (let i = selectionStart; i < selectionEnd; i++) {
+        const existing = next[i];
+        next[i] = existing
+          ? {
+              model: modelChanged ? model : existing.model,
+              ribbon: ribbonChanged ? ribbon : existing.ribbon,
+            }
+          : { model, ribbon };
       }
+      documentState.commit({ text, charFormats: next, charEmphasis, cursorPos }, 'replace');
     }
-  }, [model, ribbon, selectionStart, selectionEnd]);
+
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+      textareaRef.current.setSelectionRange(selectionStart, selectionEnd);
+    }
+    // Intentionally keyed on machine/ribbon only: re-running on every selection
+    // change would re-ink text the writer merely highlighted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [model, ribbon]);
 
   useEffect(() => {
     setRibbonWearState(createRibbonWearState(ribbon));
@@ -274,6 +360,9 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, model, ribbon, 
     }
     if (strikeTimeoutRef.current) {
       window.clearTimeout(strikeTimeoutRef.current);
+    }
+    if (lockTimeoutRef.current) {
+      window.clearTimeout(lockTimeoutRef.current);
     }
     returnMotionTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
   }, []);
@@ -372,7 +461,14 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, model, ribbon, 
   // Bell (uses metrics from the document model)
   // ---------------------------------------------------------------------------
 
-  const maybePlayBell = (nextCursorPos: number) => {
+  /**
+   * Evaluate the bell and ring it if the carriage has entered the warning zone.
+   *
+   * The bell's *state* is tracked whether or not sound is available — muting the
+   * machine must not desynchronise the margin warning — but it only makes a
+   * noise when audio is ready.
+   */
+  const maybePlayBell = (nextCursorPos: number, soundReady: boolean) => {
     const bellState = evaluateBellState(
       text,
       nextCursorPos,
@@ -380,7 +476,7 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, model, ribbon, 
       audioEngine.getBellColumns(metrics.maxCharsPerLine, model)
     );
 
-    if (bellState.shouldRing) {
+    if (bellState.shouldRing && soundReady) {
       audioEngine.playBell(model);
     }
 
@@ -388,51 +484,129 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, model, ribbon, 
   };
 
   // ---------------------------------------------------------------------------
+  // Margin stop
+  // ---------------------------------------------------------------------------
+
+  /**
+   * The carriage refused a keystroke because the line is full.
+   *
+   * Previously this branch returned silently, so the app simply stopped
+   * responding partway through a sentence. A real machine locks its keys and
+   * rings; the writer needs both signals to know the machine is working and it
+   * is the margin, not the app, that stopped them.
+   */
+  const signalCarriageLock = () => {
+    setCarriageLocked(true);
+
+    if (audioEnabled && audioStatus === 'ready') {
+      audioEngine.playBell(model);
+    }
+
+    if (lockTimeoutRef.current) {
+      window.clearTimeout(lockTimeoutRef.current);
+    }
+    lockTimeoutRef.current = window.setTimeout(() => setCarriageLocked(false), 1400);
+  };
+
+  /** Anything that shortens the line or returns the carriage frees the keys. */
+  const releaseCarriageLock = () => {
+    if (lockTimeoutRef.current) {
+      window.clearTimeout(lockTimeoutRef.current);
+      lockTimeoutRef.current = null;
+    }
+    setCarriageLocked(false);
+  };
+
+  // ---------------------------------------------------------------------------
   // Input handlers (textarea still captures input; layout comes from doc model)
   // ---------------------------------------------------------------------------
 
+  const restoreSnapshotSelection = (snapshot: { text: string; cursorPos: number } | null) => {
+    if (!snapshot) return;
+    // Undo replaces the document wholesale, so the live cursor has to jump with
+    // it rather than wait for the resync effect.
+    liveTextRef.current = snapshot.text;
+    liveCursorRef.current = snapshot.cursorPos;
+    setSelectionStart(snapshot.cursorPos);
+    setSelectionEnd(snapshot.cursorPos);
+    setViewingPage(null);
+    releaseCarriageLock();
+    window.requestAnimationFrame(() => {
+      textareaRef.current?.setSelectionRange(snapshot.cursorPos, snapshot.cursorPos);
+    });
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const target = e.currentTarget;
+    const modifier = e.metaKey || e.ctrlKey;
+
+    // Undo/redo has to be intercepted here: the native stack is empty because
+    // printable keys never reach the textarea's own edit pipeline.
+    if (modifier && !e.altKey && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      restoreSnapshotSelection(e.shiftKey ? documentState.redo() : documentState.undo());
+      return;
+    }
+    if (modifier && !e.altKey && e.key.toLowerCase() === 'y') {
+      e.preventDefault();
+      restoreSnapshotSelection(documentState.redo());
+      return;
+    }
 
     if (disableBackspaceDelete && (e.key === 'Backspace' || e.key === 'Delete')) {
       e.preventDefault();
       return;
     }
 
+    const soundReady = audioEnabled && audioStatus === 'ready';
     const isPrintable = e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey && !e.nativeEvent.isComposing;
+    const strikeAt = liveCursorRef.current;
+    const nextCursorPos = strikeAt + 1;
 
     if (isPrintable) {
       e.preventDefault();
-      // Trigger strike effect at the position where the character will land
-      triggerStrikeEffect(target.selectionStart);
-      applyManualStrike(e.key, target);
+      pendingEditKindRef.current = 'type';
+
+      // Nothing else should fire if the margin stop refused the character —
+      // no strike mark, no carriage travel, no ribbon advance.
+      if (!applyManualStrike(e.key, target)) {
+        return;
+      }
+
+      triggerStrikeEffect(strikeAt);
+      triggerTypingMotion();
+      setRibbonTurn((turn) => turn + 1);
+      maybePlayBell(nextCursorPos, soundReady);
+
+      if (soundReady) {
+        audioEngine.playKeypress(e.key === ' ', model);
+        audioEngine.playRibbon(model);
+      }
+      return;
     }
 
-    if (!audioEnabled || audioStatus !== 'ready') return;
-
-    const nextCursorPos = target.selectionStart + 1;
-
+    // Everything below is mechanical feedback, and deliberately runs whether or
+    // not sound is enabled. Muting the machine should silence it, not freeze it.
     if (e.key === 'Enter') {
-      audioEngine.playReturn(model);
+      pendingEditKindRef.current = 'return';
+      releaseCarriageLock();
       bellArmedRef.current = true;
       triggerCarriageReturnMotion();
-    } else if (e.key === ' ') {
-      audioEngine.playKeypress(true, model);
-      audioEngine.playRibbon(model);
-      maybePlayBell(nextCursorPos);
-      triggerTypingMotion();
-      triggerStrikeEffect(target.selectionStart);
-    } else if (e.key.length === 1) {
-      audioEngine.playKeypress(false, model);
-      audioEngine.playRibbon(model);
 
-      maybePlayBell(nextCursorPos);
-      triggerTypingMotion();
-    } else if (e.key === 'Backspace' || e.key === 'Delete' || e.key.startsWith('Arrow')) {
+      if (soundReady) {
+        audioEngine.playReturn(model);
+      }
+      return;
+    }
+
+    if (e.key === 'Backspace' || e.key === 'Delete' || e.key.startsWith('Arrow')) {
+      pendingEditKindRef.current = classifyKey(e.key);
+      releaseCarriageLock();
+
       if (
         shouldRearmBellAfterCursorOrEdit(
-          text,
-          target.selectionStart,
+          liveTextRef.current,
+          liveCursorRef.current,
           audioEngine.getBellColumns(metrics.maxCharsPerLine, model)
         )
       ) {
@@ -441,35 +615,58 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, model, ribbon, 
     }
   };
 
-  const applyTextUpdate = (newText: string, nextSelectionStart: number, nextSelectionEnd: number) => {
+  /**
+   * Apply a whole-document text replacement.
+   *
+   * Returns false when the margin stop refused the edit, so callers can skip
+   * the strike effect and sound that would otherwise imply the key landed.
+   */
+  const applyTextUpdate = (
+    newText: string,
+    nextSelectionStart: number,
+    nextSelectionEnd: number,
+    kind: EditKind = pendingEditKindRef.current,
+    /** Emphasis to stamp onto the characters this edit inserts */
+    insertedEmphasis?: Partial<CharEmphasis>,
+  ): boolean => {
     if (!canApplyTextWithinMaxColumns(newText, metrics.maxCharsPerLine)) {
-      return;
+      signalCarriageLock();
+      return false;
     }
 
+    // Diff against the live text, not the rendered prop, so a burst of
+    // keystrokes inside one render each builds on the last.
+    const prevText = liveTextRef.current;
+
     let prefixLen = 0;
-    while (prefixLen < text.length && prefixLen < newText.length && text[prefixLen] === newText[prefixLen]) {
+    while (prefixLen < prevText.length && prefixLen < newText.length && prevText[prefixLen] === newText[prefixLen]) {
       prefixLen++;
     }
 
     let suffixLen = 0;
-    while (suffixLen < text.length - prefixLen && suffixLen < newText.length - prefixLen && text[text.length - 1 - suffixLen] === newText[newText.length - 1 - suffixLen]) {
+    while (suffixLen < prevText.length - prefixLen && suffixLen < newText.length - prefixLen && prevText[prevText.length - 1 - suffixLen] === newText[newText.length - 1 - suffixLen]) {
       suffixLen++;
     }
 
-    const oldReplacedLen = text.length - prefixLen - suffixLen;
+    const oldReplacedLen = prevText.length - prefixLen - suffixLen;
     const newInsertedLen = newText.length - prefixLen - suffixLen;
 
-    setCharFormats(prev => {
-      const next = [...prev];
-      next.splice(prefixLen, oldReplacedLen, ...Array(newInsertedLen).fill({ model, ribbon }));
-      return next;
-    });
+    const nextFormats = [...charFormats];
+    nextFormats.splice(
+      prefixLen,
+      oldReplacedLen,
+      ...Array.from({ length: newInsertedLen }, (): CharFormat => ({ model, ribbon })),
+    );
 
-    setCharEmphasis(prev => {
-      const next = [...prev];
-      next.splice(prefixLen, oldReplacedLen, ...Array(newInsertedLen).fill({ strikeCount: 1, underline: false }));
-      return next;
-    });
+    const nextEmphasis = [...charEmphasis];
+    nextEmphasis.splice(
+      prefixLen,
+      oldReplacedLen,
+      ...Array.from({ length: newInsertedLen }, (): CharEmphasis => ({
+        ...DEFAULT_EMPHASIS,
+        ...insertedEmphasis,
+      })),
+    );
 
     setRibbonWearState(prev => {
       if (newText.length === 0) {
@@ -485,78 +682,163 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, model, ribbon, 
       return incrementRibbonWear(prev, newInsertedLen, ribbon, lineLedger);
     });
 
-    setText(newText);
-    setCursorPos(nextSelectionStart);
+    liveTextRef.current = newText;
+    liveCursorRef.current = nextSelectionStart;
+
+    documentState.commit(
+      {
+        text: newText,
+        charFormats: nextFormats,
+        charEmphasis: nextEmphasis,
+        cursorPos: nextSelectionStart,
+      },
+      kind,
+    );
+
     setSelectionStart(nextSelectionStart);
     setSelectionEnd(nextSelectionEnd);
     setViewingPage(null);
+    return true;
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newText = e.target.value;
     const target = e.target;
 
-    applyTextUpdate(newText, target.selectionStart, target.selectionEnd);
+    // A change that arrives without a preceding keydown is a paste or a drop.
+    const kind: EditKind = Math.abs(newText.length - text.length) > 1 && pendingEditKindRef.current === 'type'
+      ? 'paste'
+      : pendingEditKindRef.current;
+
+    if (!applyTextUpdate(newText, target.selectionStart, target.selectionEnd, kind)) {
+      // Put the textarea back in step with the document it refused to change.
+      target.value = text;
+      target.setSelectionRange(cursorPos, cursorPos);
+    }
+
+    pendingEditKindRef.current = 'type';
   };
 
-  const applyManualStrike = (key: string, target: HTMLTextAreaElement) => {
-    const start = target.selectionStart;
-    const end = target.selectionEnd;
+  /**
+   * Strike one character at the caret, the way the machine would.
+   *
+   * Typing over an existing character overstrikes it rather than inserting:
+   * repeating the same letter darkens it, `_` underlines it, anything else
+   * replaces it. Returns false if the margin stop refused the strike.
+   */
+  const applyManualStrike = (rawKey: string, target: HTMLTextAreaElement): boolean => {
+    // What the machine actually strikes may not be what was pressed: an
+    // Underwood has no figure 1, and no machine of its age has an exclamation
+    // mark. Resolve the keypress against this machine's real keyboard first.
+    const struck = resolveKeystroke(model, rawKey);
+    const key = struck.char;
+    const composite: Partial<CharEmphasis> | undefined = struck.overstrike
+      ? { overstrike: struck.overstrike }
+      : undefined;
+
+    if (struck.substitutedFor && !announcedSubstitutionsRef.current.has(`${model}:${rawKey}`)) {
+      announcedSubstitutionsRef.current.add(`${model}:${rawKey}`);
+      const explanation = describeSubstitution(model, rawKey);
+      if (explanation) onNotice(explanation, 'ok');
+    }
+
+    const text = liveTextRef.current;
+    // A live selection still comes from the textarea — the browser owns
+    // dragging and shift-arrow — but a collapsed caret comes from our own
+    // bookkeeping, which is the only thing that keeps up with fast typing.
+    const hasSelection = target.selectionStart !== target.selectionEnd;
+    const start = hasSelection ? target.selectionStart : liveCursorRef.current;
+    const end = hasSelection ? target.selectionEnd : start;
+
+    const commitOverstrike = (newText: string, nextEmphasis: CharEmphasis[]) => {
+      const nextPos = start + 1;
+      liveTextRef.current = newText;
+      liveCursorRef.current = nextPos;
+      documentState.commit(
+        { text: newText, charFormats, charEmphasis: nextEmphasis, cursorPos: nextPos },
+        'type',
+      );
+      setSelectionStart(nextPos);
+      setSelectionEnd(nextPos);
+      setViewingPage(null);
+      window.requestAnimationFrame(() => target.setSelectionRange(nextPos, nextPos));
+    };
 
     if (start !== end) {
       const newText = `${text.slice(0, start)}${key}${text.slice(end)}`;
-      applyTextUpdate(newText, start + 1, start + 1);
-      return;
+      return applyTextUpdate(newText, start + 1, start + 1, 'replace', composite);
     }
 
     if (start < text.length && text[start] !== '\n') {
+      // Overstriking does not lengthen the line, so it can never hit the stop.
       if (key === '_') {
-        setCharEmphasis(prev => {
-          const next = [...prev];
-          const existing = next[start] || { strikeCount: 1, underline: false };
-          next[start] = { ...existing, underline: true };
-          return next;
-        });
-        const nextPos = start + 1;
-        setCursorPos(nextPos);
-        setSelectionStart(nextPos);
-        setSelectionEnd(nextPos);
-        setViewingPage(null);
-        window.requestAnimationFrame(() => target.setSelectionRange(nextPos, nextPos));
-        return;
+        const nextEmphasis = [...charEmphasis];
+        nextEmphasis[start] = { ...(nextEmphasis[start] ?? DEFAULT_EMPHASIS), underline: true };
+        commitOverstrike(text, nextEmphasis);
+        return true;
+      }
+
+      if (text[start] === key) {
+        const nextEmphasis = [...charEmphasis];
+        const existing = nextEmphasis[start] ?? DEFAULT_EMPHASIS;
+        nextEmphasis[start] = { ...existing, strikeCount: existing.strikeCount + 1 };
+        setRibbonWearState(prev => incrementRibbonWear(prev, 1, ribbon));
+        commitOverstrike(text, nextEmphasis);
+        return true;
       }
 
       const newText = `${text.slice(0, start)}${key}${text.slice(start + 1)}`;
-
-      if (text[start] === key) {
-        setCharEmphasis(prev => {
-          const next = [...prev];
-          const existing = next[start] || { strikeCount: 1, underline: false };
-          next[start] = { ...existing, strikeCount: existing.strikeCount + 1 };
-          return next;
-        });
-        setRibbonWearState(prev => incrementRibbonWear(prev, 1, ribbon));
-        setText(newText);
-        const nextPos = start + 1;
-        setCursorPos(nextPos);
-        setSelectionStart(nextPos);
-        setSelectionEnd(nextPos);
-        setViewingPage(null);
-        window.requestAnimationFrame(() => target.setSelectionRange(nextPos, nextPos));
-        return;
-      }
-
-      applyTextUpdate(newText, start + 1, start + 1);
-      return;
+      return applyTextUpdate(newText, start + 1, start + 1, 'type', composite);
     }
 
     const newText = `${text.slice(0, start)}${key}${text.slice(start)}`;
-    applyTextUpdate(newText, start + 1, start + 1);
+    return applyTextUpdate(newText, start + 1, start + 1, 'type', composite);
   };
+
+  // ---------------------------------------------------------------------------
+  // Cancelling text the way the machine allows
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Apply a treatment to every character in the selection.
+   *
+   * With Backspace Lock on there is no delete key, so this is the only way to
+   * retract a sentence — which is exactly the position a typist was in. X-ing
+   * out leaves the words legible under the strikes; correction fluid does not.
+   */
+  const treatSelection = (patch: Partial<CharEmphasis>) => {
+    if (selectionStart === selectionEnd) return;
+
+    const next = [...charEmphasis];
+    for (let i = selectionStart; i < selectionEnd; i++) {
+      if (text[i] === '\n') continue;
+      next[i] = { ...(next[i] ?? DEFAULT_EMPHASIS), ...patch };
+    }
+
+    documentState.commit({ text, charFormats, charEmphasis: next, cursorPos }, 'replace');
+    setRibbonWearState(prev => incrementRibbonWear(prev, selectionEnd - selectionStart, ribbon));
+  };
+
+  useEffect(() => {
+    if (selectionStart === selectionEnd) {
+      onSelectionActions(null);
+      return;
+    }
+
+    onSelectionActions({
+      count: selectionEnd - selectionStart,
+      xOut: () => treatSelection({ overstrike: 'x', corrected: false }),
+      correct: () => treatSelection({ corrected: true, overstrike: undefined }),
+      clear: () => treatSelection({ corrected: false, overstrike: undefined }),
+    });
+    // treatSelection closes over the current document; re-registering on every
+    // relevant change keeps the toolbar acting on what is actually selected.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectionStart, selectionEnd, text, charEmphasis, charFormats, cursorPos]);
 
   const handleSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
     const target = e.target as HTMLTextAreaElement;
-    setCursorPos(target.selectionStart);
+    documentState.moveCursor(target.selectionStart);
     setSelectionStart(target.selectionStart);
     setSelectionEnd(target.selectionEnd);
     setViewingPage(null);
@@ -577,16 +859,42 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, model, ribbon, 
   const cursorPageIdx = cursor.pageIndex;
   const cursorLineIdx = cursor.lineIndex;
 
-  let globalCharIndex = 0;
+  /**
+   * Per-character strike irregularity.
+   *
+   * Seeded on the character's position in the text. It used to be seeded on a
+   * counter incremented while walking the render tree, which meant the jitter
+   * of every glyph depended on how many glyphs happened to be drawn before it —
+   * so mounting a different set of pages would have reshuffled the whole
+   * document's imperfections. With only a window of pages rendered, that
+   * counter is no longer a stable quantity at all.
+   */
+  // `ribbonWearState` gets a fresh identity on every strike, but its *visible*
+  // projection only moves once every WEAR_QUANTUM strikes. Hold the object
+  // steady while that projection is unchanged, so the style function below
+  // keeps its identity and the memoised lines survive.
+  const wearSignature = useMemo(
+    () =>
+      `${ribbonWearState.activeRibbon}|${quantizeWear(ribbonWearState.impressionCount)}|`
+      + ribbonWearState.lineImpressions.map(quantizeWear).join(','),
+    [ribbonWearState],
+  );
 
-  const getCharacterRenderStyle = (
-    charSeedIndex: number,
+  const inkWearState = useMemo(
+    () => ribbonWearState,
+    // Deliberately keyed on the quantised signature rather than the object:
+    // holding a stale-but-equivalent state is the entire point.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [wearSignature],
+  );
+
+  const getCharacterRenderStyle = useCallback((
     charPos: number,
     lineSeedIndex: number,
     char: string,
     charRibbonKey: keyof typeof RIBBONS
   ) => {
-    const seed = charSeedIndex * 1337;
+    const seed = charPos * 1337;
     const xJitter = (pseudoRandom(seed) - 0.5) * 1.1 * wearLevel;
     const yJitter = (pseudoRandom(seed + 1) - 0.5) * 1.25 * wearLevel;
     const rotJitter = (pseudoRandom(seed + 2) - 0.5) * 1.6 * wearLevel;
@@ -594,7 +902,7 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, model, ribbon, 
     const pressVariance = (pseudoRandom(seed + 4) - 0.5) * wearLevel * 0.08;
     const spacingNudge = (pseudoRandom(seed + 5) - 0.5) * wearLevel * 0.04;
     const ribbonInk = calculateRibbonInkStyle({
-      state: ribbonWearState,
+      state: inkWearState,
       ribbon: charRibbonKey,
       char,
       charIndex: charPos,
@@ -607,7 +915,7 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, model, ribbon, 
       filter: `contrast(${(ribbonInk.contrast + pressVariance).toFixed(3)}) brightness(${ribbonInk.brightness.toFixed(3)})`,
       marginRight: `${spacingNudge}em`,
     };
-  };
+  }, [inkWearState, wearLevel]);
 
   // Vertical offset to keep the typing line fixed
   const activePageIdx = viewingPage !== null ? viewingPage : cursorPageIdx;
@@ -633,6 +941,23 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, model, ribbon, 
   const marginApproach = Math.min(1, Math.max(0, (cursorColumnOnLine / metrics.maxCharsPerLine - 0.72) / 0.28));
 
   // ---------------------------------------------------------------------------
+  // Which pages actually get rendered
+  //
+  // The stack used to render every page of the document on every keystroke —
+  // eleven pages of a long draft came to 43,000 spans, and each one had its ink
+  // recomputed per keypress. Only a page or two is ever on screen, so render a
+  // window around the active one and leave the rest as spacers that hold the
+  // scroll position. PNG export widens the window to the whole document first,
+  // since it captures the stack rather than the screen.
+  // ---------------------------------------------------------------------------
+
+  const PAGE_WINDOW = 1;
+  const windowStart = renderAllPages ? 0 : Math.max(0, activePageIdx - PAGE_WINDOW);
+  const windowEnd = renderAllPages
+    ? doc.pageCount - 1
+    : Math.min(doc.pageCount - 1, activePageIdx + PAGE_WINDOW);
+
+  // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
@@ -654,28 +979,55 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, model, ribbon, 
         )}
       >
         <div className="p-4 border-b border-neutral-800 flex justify-between items-center text-neutral-400">
-          <span className="text-sm font-medium uppercase tracking-wider">Pages</span>
+          <span className="text-sm font-medium uppercase tracking-wider" id="pages-rail-heading">Pages</span>
           <button
             onClick={() => setIsSidebarOpen(false)}
-            className="hover:text-white transition-colors"
+            className="rounded p-1 hover:text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400"
+            aria-label="Hide the pages rail"
           >
-            ✕
+            <span aria-hidden="true">✕</span>
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-          {doc.pages.map((_, idx) => (
+        <nav className="flex-1 overflow-y-auto p-4 flex flex-col gap-4" aria-labelledby="pages-rail-heading">
+          {doc.pages.map((page, idx) => (
             <button
               key={idx}
               onClick={() => setViewingPage(idx)}
+              aria-label={`Go to page ${idx + 1} of ${doc.pageCount}`}
+              aria-current={activePageIdx === idx}
               className={cn(
-                "aspect-[8.5/11] w-full bg-[#f4f1ea] rounded-[2px] shadow-md flex items-center justify-center text-neutral-400 transition-all border border-[#d9d2c2]",
-                activePageIdx === idx ? "ring-2 ring-blue-500 opacity-100" : "opacity-50 hover:opacity-80"
+                'page-thumb w-full rounded-[2px] shadow-md transition-all border border-[#d9d2c2] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300',
+                activePageIdx === idx ? 'ring-2 ring-blue-500 opacity-100' : 'opacity-60 hover:opacity-90',
               )}
+              style={{ aspectRatio: `${pageSpec.paper.width} / ${pageSpec.paper.height}` }}
             >
-              <span className="font-mono text-xl">{idx + 1}</span>
+              {/* The real page, shrunk. A thumbnail that shows nothing about
+                  its page is not worth the rail it sits in. */}
+              <span
+                className={cn('page-thumb-sheet', activeModel.font)}
+                style={{
+                  width: `${pageSpec.paper.width}px`,
+                  height: `${pageSpec.paper.height}px`,
+                  padding: `${pageSpec.marginTop}px ${pageSpec.marginRight}px ${pageSpec.marginBottom}px ${pageSpec.marginLeft}px`,
+                  fontSize: `${typeMetrics.fontSize}px`,
+                  letterSpacing: `${pitch.letterSpacing}px`,
+                  lineHeight: `${metrics.lineHeight}px`,
+                  transform: `scale(var(--thumb-scale))`,
+                }}
+                aria-hidden="true"
+              >
+                {page.lines.map((line, lineIndex) => (
+                  <span key={lineIndex} className="page-thumb-line" style={{ height: `${metrics.lineHeight}px` }}>
+                    {line.tokens
+                      .map((token) => (token.type === 'word' ? token.text : token.type === 'space' ? ' ' : ''))
+                      .join('')}
+                  </span>
+                ))}
+              </span>
+              <span className="page-thumb-number">{idx + 1}</span>
             </button>
           ))}
-        </div>
+        </nav>
       </div>
 
       {/* Toggle Sidebar Button (when closed) */}
@@ -697,7 +1049,15 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, model, ribbon, 
           audioEngine.resumeFromUserGesture();
         }}
       >
-        {/* Hidden textarea – still the input capture mechanism */}
+        {/*
+          The real control.
+
+          It is invisible but not hidden: the page you see is drawn as one span
+          per character, which a screen reader would read out as a stream of
+          disconnected letters. The rendered page is marked aria-hidden and this
+          textarea carries the document, so assistive technology gets ordinary
+          editable text and everyone else gets the typewriter.
+        */}
         <textarea
           ref={textareaRef}
           value={text}
@@ -708,11 +1068,27 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, model, ribbon, 
           style={{ color: 'transparent', backgroundColor: 'transparent', borderColor: 'transparent', outline: 'none', caretColor: 'transparent' }}
           spellCheck={false}
           autoFocus
-          aria-label="Typewriter input"
+          aria-label="Typewriter sheet"
+          aria-describedby="typewriter-instructions"
         />
 
-        {/* Paper Container – pages rendered from document model */}
+        <p id="typewriter-instructions" className="sr-only">
+          {`Typing on a ${activeModel.name}. The carriage stops at ${metrics.maxCharsPerLine} characters and
+          locks until you press Return. Page ${activePageIdx + 1} of ${doc.pageCount}.
+          ${stats.words} ${stats.words === 1 ? 'word' : 'words'} so far.
+          Undo with Control or Command Z.`}
+        </p>
+
+        {/* Announced only when the machine refuses a keystroke. */}
+        <p aria-live="assertive" className="sr-only">
+          {carriageLocked ? 'Margin stop reached. Press Return for a new line.' : ''}
+        </p>
+
+        {/* Paper Container – pages rendered from document model.
+            Hidden from assistive technology: it is a per-character rendering of
+            text the textarea above already exposes properly. */}
         <div
+          aria-hidden="true"
           className={cn(
             'absolute top-0 origin-top will-change-transform z-10 max-w-full',
             prefersReducedMotion ? 'transition-transform duration-75 linear' : 'transition-transform duration-150 ease-out'
@@ -720,7 +1096,21 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, model, ribbon, 
           style={{ transform: paperTransform }}
         >
           <div ref={paperRef} className={cn('flex flex-col pointer-events-none', isMobile ? 'gap-5' : 'gap-8') }>
-            {doc.pages.map((page, pageIndex) => (
+            {doc.pages.map((page, pageIndex) => {
+              // Pages outside the window keep their space in the stack so the
+              // scroll transform stays correct, but render no text.
+              if (pageIndex < windowStart || pageIndex > windowEnd) {
+                return (
+                  <div
+                    key={pageIndex}
+                    className="paper-texture paper-shadow flex-shrink-0"
+                    style={{ width: `${pageSpec.paper.width}px`, height: `${pageSpec.paper.height}px` }}
+                    aria-hidden="true"
+                  />
+                );
+              }
+
+              return (
               <div
                 key={pageIndex}
                 className={cn(
@@ -729,12 +1119,17 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, model, ribbon, 
                   activeModel.font,
                   activeRibbon !== 'ink-stencil' && activeRibbon,
                   activeRibbon === 'ink-stencil' && 'ink-stencil',
-                  "ink-bleed paper-sheet text-[15px] tracking-[0.01em] whitespace-pre pointer-events-auto"
+                  "ink-bleed paper-sheet whitespace-pre pointer-events-auto"
                 )}
                 style={{
                   width: `${pageSpec.paper.width}px`,
                   height: `${pageSpec.paper.height}px`,
                   padding: `${pageSpec.marginTop}px ${pageSpec.marginRight}px ${pageSpec.marginBottom}px ${pageSpec.marginLeft}px`,
+                  fontSize: `${typeMetrics.fontSize}px`,
+                  // Trims each glyph's natural advance to the machine's pitch,
+                  // so a line of text ends exactly where the layout engine and
+                  // the margin guides say it should.
+                  letterSpacing: `${pitch.letterSpacing}px`,
                   lineHeight: `${metrics.lineHeight}px`
                 }}
               >
@@ -750,198 +1145,71 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, model, ribbon, 
                   aria-hidden="true"
                 />
                 <div className="relative z-10">
-                  {page.lines.map((line, lineIndex) => {
-                    const isCursorOnThisLine = viewingPage === null && cursorPageIdx === pageIndex && cursorLineIdx === lineIndex;
-
-                    return (
-                      <div
-                        key={lineIndex}
-                        className="flex relative cursor-text"
-                        style={{
-                          height: `${metrics.lineHeight}px`,
-                          transform: `translateY(${(pseudoRandom((pageIndex + 1) * 7000 + lineIndex) - 0.5) * wearLevel * 0.75}px)`
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          let newPos = line.endIndex;
-                          if (line.tokens.length > 0 && line.tokens[line.tokens.length - 1].type === 'newline') {
-                            newPos = line.tokens[line.tokens.length - 1].index;
-                          }
-                          setCursorPos(newPos);
-                          if (textareaRef.current) {
-                            textareaRef.current.focus();
-                            textareaRef.current.setSelectionRange(newPos, newPos);
-                          }
-                        }}
-                      >
-                        {isCursorOnThisLine && line.tokens.length === 0 && selectionStart === selectionEnd && (
-                          <span className="typewriter-caret absolute left-0 mt-[1px]" />
-                        )}
-                        {line.tokens.map((token: Token, tokenIndex: number) => {
-                          const isLastToken = tokenIndex === line.tokens.length - 1;
-
-                          if (token.type === 'newline') {
-                            const isSelected = token.index >= selectionStart && token.index < selectionEnd;
-                            return (
-                              <span key={tokenIndex} className={cn("inline-block relative", isSelected && "bg-blue-500/30 w-[0.6em] h-[1.2em]")}>
-                                {isCursorOnThisLine && cursorPos === token.index && selectionStart === selectionEnd && (
-                                  <span className="typewriter-caret absolute left-0 mt-[1px]" />
-                                )}
-                              </span>
-                            );
-                          }
-
-                          if (token.type === 'space') {
-                            const format = charFormats[token.index] || { model, ribbon };
-                            const charModel = MODELS[format.model];
-                            const charRibbon = RIBBONS[format.ribbon];
-                            const isSelected = token.index >= selectionStart && token.index < selectionEnd;
-                            const isSpaceStruck = strikeEffect !== null && strikeEffect.charIndex === token.index;
-
-                            return (
-                              <span
-                                key={isSpaceStruck ? `${tokenIndex}-s${strikeEffect.seq}` : tokenIndex}
-                                className={cn(
-                                  "inline-block relative whitespace-pre",
-                                  charModel.font,
-                                  charRibbon !== 'ink-stencil' && charRibbon,
-                                  charRibbon === 'ink-stencil' && 'ink-stencil',
-                                  isSelected && "bg-blue-500/30"
-                                )}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setCursorPos(token.index);
-                                  if (textareaRef.current) {
-                                    textareaRef.current.focus();
-                                    textareaRef.current.setSelectionRange(token.index, token.index);
-                                  }
-                                }}
-                              >
-                                {isCursorOnThisLine && cursorPos === token.index && selectionStart === selectionEnd && (
-                                  <span className="typewriter-caret absolute left-0 mt-[1px]" />
-                                )}
-                                {' '}
-                                {isSpaceStruck && (
-                                  <span className={cn("ribbon-contact", ribbonContactClass[format.ribbon] || 'ribbon-contact-black')} />
-                                )}
-                                {isCursorOnThisLine && isLastToken && cursorPos === token.index + 1 && selectionStart === selectionEnd && (
-                                  <span className="typewriter-caret absolute right-0 translate-x-full mt-[1px]" />
-                                )}
-                              </span>
-                            );
-                          }
-
-                          if (token.type === 'word') {
-                            return (
-                              <span key={tokenIndex} className="inline-block relative">
-                                {token.text.split('').map((char: string, charIndex: number) => {
-                                  const charPos = token.index + charIndex;
-                                  const format = charFormats[charPos] || { model, ribbon };
-                                  const charModel = MODELS[format.model];
-                                  const charRibbon = RIBBONS[format.ribbon];
-                                  const isSelected = charPos >= selectionStart && charPos < selectionEnd;
-                                  const emphasis = charEmphasis[charPos] || { strikeCount: 1, underline: false };
-                                  const i = globalCharIndex++;
-                                  const lineSeedIndex = pageIndex * metrics.maxLinesPerPage + lineIndex;
-                                  const baseStyle = getCharacterRenderStyle(i, charPos, lineSeedIndex, char, format.ribbon);
-                                  const charStyle = {
-                                    ...baseStyle,
-                                    textDecoration: emphasis.underline ? 'underline' : undefined,
-                                    textDecorationThickness: emphasis.underline ? '1px' : undefined,
-                                    textUnderlineOffset: emphasis.underline ? '2px' : undefined,
-                                    fontWeight: emphasis.strikeCount > 1 ? 700 : undefined,
-                                    opacity: Math.min(1, 0.84 + (emphasis.strikeCount - 1) * 0.08),
-                                  };
-
-                                  const isStruck = strikeEffect !== null && strikeEffect.charIndex === charPos;
-
-                                  return (
-                                    <span key={isStruck ? `${charIndex}-s${strikeEffect.seq}` : charIndex} className="inline-block relative" onClick={(e) => {
-                                      e.stopPropagation();
-                                      const rect = (e.target as HTMLElement).getBoundingClientRect();
-                                      const clickX = e.clientX - rect.left;
-                                      const isRightHalf = clickX > rect.width / 2;
-                                      const newPos = isRightHalf ? charPos + 1 : charPos;
-                                      setCursorPos(newPos);
-                                      if (textareaRef.current) {
-                                        textareaRef.current.focus();
-                                        textareaRef.current.setSelectionRange(newPos, newPos);
-                                      }
-                                    }}>
-                                      {isCursorOnThisLine && cursorPos === charPos && selectionStart === selectionEnd && (
-                                        <span className="typewriter-caret absolute left-0 mt-[1px]" />
-                                      )}
-                                      <span
-                                        className={cn(
-                                          "inline-block",
-                                          charModel.font,
-                                          charRibbon !== 'ink-stencil' && charRibbon,
-                                          charRibbon === 'ink-stencil' && 'ink-stencil',
-                                          isSelected && "bg-blue-500/30",
-                                          isStruck && "strike-impact"
-                                        )}
-                                        style={charStyle}
-                                      >
-                                        {char}
-                                        {isStruck && (
-                                          <>
-                                            <span className={cn("ribbon-contact", ribbonContactClass[format.ribbon] || 'ribbon-contact-black')} />
-                                            <span className="strike-shadow" />
-                                          </>
-                                        )}
-                                      </span>
-                                      {isCursorOnThisLine && isLastToken && charIndex === token.text.length - 1 && cursorPos === charPos + 1 && selectionStart === selectionEnd && (
-                                        <span className="typewriter-caret absolute right-0 translate-x-full mt-[1px]" />
-                                      )}
-                                    </span>
-                                  );
-                                })}
-                              </span>
-                            );
-                          }
-                          return null;
-                        })}
-                      </div>
-                    );
-                  })}
+                  {page.lines.map((line, lineIndex) => (
+                    <PageLine
+                      key={lineIndex}
+                      line={line}
+                      pageIndex={pageIndex}
+                      lineIndex={lineIndex}
+                      lineHeight={metrics.lineHeight}
+                      lineSeedIndex={pageIndex * metrics.maxLinesPerPage + lineIndex}
+                      wearLevel={wearLevel}
+                      charFormats={charFormats}
+                      charEmphasis={charEmphasis}
+                      model={model}
+                      ribbon={ribbon}
+                      cursorPos={cursorPos}
+                      selectionStart={selectionStart}
+                      selectionEnd={selectionEnd}
+                      isCursorOnThisLine={viewingPage === null && cursorPageIdx === pageIndex && cursorLineIdx === lineIndex}
+                      struckCharIndex={strikeEffect?.charIndex ?? null}
+                      strikeSeq={strikeEffect?.seq ?? 0}
+                      ribbonContactClass={ribbonContactClass}
+                      getCharacterRenderStyle={getCharacterRenderStyle}
+                      onCaretTo={moveCaretTo}
+                    />
+                  ))}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
-        {/* Machine window/chassis – frames paper without obscuring typing area */}
-        <div
-          className={cn('absolute left-0 w-full pointer-events-none flex justify-center z-20', machineShellMode === 'minimal' && 'opacity-45')}
-          style={{
-            top: `${TYPING_OFFSET_Y - pageSpec.marginTop - 70}px`,
-            height: `${pageSpec.paper.height + 140}px`,
-          }}
-        >
+        {/* Margin scale, pinned above the printing line where the machine's
+            own scale sits. Dragging a stop sets the margin directly. */}
+        {!isMobile && (
           <div
-            className={cn('typewriter-machine-frame', `machine-model-${model}`, machineShellMode === 'compact' && 'machine-shell-compact', machineShellMode === 'minimal' && 'machine-shell-minimal')}
-            style={{
-              width: `${pageSpec.paper.width + 124}px`,
-              transform: guideTransform,
-              transformOrigin: 'center',
-              ['--machine-warm' as string]: chassisPalette.warm,
-              ['--machine-cool' as string]: chassisPalette.cool,
-              ['--machine-base' as string]: chassisPalette.base,
-            }}
-            aria-hidden="true"
+            className="absolute left-0 z-30 flex w-full justify-center"
+            style={{ top: `${Math.max(6, TYPING_OFFSET_Y - 118)}px` }}
           >
-            <div className="machine-color-wash" />
-            <div className="machine-frame-top" />
-            <div className="machine-frame-sides" />
-            <div className="machine-paper-window" />
-            <div className="machine-platen-assembly">
-              <div className="machine-platen-roller" />
-              <div className="machine-ribbon-band" />
-              <div className="machine-strike-shadow" />
-            </div>
-            <div className="machine-frame-bottom" />
+            <MarginRuler
+              paper={pageSpec.paper}
+              marginLeft={pageSpec.marginLeft}
+              marginRight={pageSpec.marginRight}
+              charWidth={pageSpec.charWidth}
+              scale={scale}
+              onChange={onMarginStopsChange}
+            />
           </div>
-        </div>
+        )}
+
+        <MachineChassis
+          model={model}
+          ribbon={ribbon}
+          paperWidth={pageSpec.paper.width}
+          printingLineY={TYPING_OFFSET_Y}
+          lineHeight={metrics.lineHeight}
+          strikeX={carriageCueX}
+          scale={scale}
+          carriageX={motionState.carriageOffsetX + carriageTravelOffset}
+          offsetX={motionState.machineOffsetX}
+          offsetY={motionState.machineOffsetY}
+          ribbonTurn={ribbonTurn}
+          compact={!isDesktop}
+          reducedMotion={prefersReducedMotion}
+          counter={{ words: stats.words, pages: doc.pageCount, minutes: elapsedMinutes }}
+        />
 
         {/* Typewriter Guide overlay */}
         <div
@@ -963,13 +1231,22 @@ export function Typewriter({ responsiveTier, mobileKeyboardOpen, model, ribbon, 
               <span className="carriage-bracket-pin" />
             </div>
             <div
-              className="carriage-margin-cue"
+              className={cn('carriage-margin-cue', carriageLocked && 'carriage-margin-cue-locked')}
               style={{
                 left: `${rightMarginX + 7}px`,
                 top: `${Math.max(3, metrics.lineHeight * 0.06)}px`,
-                opacity: 0.16 + marginApproach * 0.46,
+                opacity: carriageLocked ? 1 : 0.16 + marginApproach * 0.46,
               }}
             />
+            {carriageLocked && (
+              <div
+                className="carriage-lock-flag"
+                style={{ left: `${rightMarginX + 16}px` }}
+                role="status"
+              >
+                Margin stop &middot; press Return
+              </div>
+            )}
           </div>
         </div>
       </div>

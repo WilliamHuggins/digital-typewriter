@@ -1,5 +1,46 @@
 @import "tailwindcss";
 
+/* The five typefaces are served from the app's own bundle, not a font CDN.
+   They already ship in the repository for PDF embedding, so fetching them from
+   a third party bought nothing and cost two things: the machine silently fell
+   back to system monospace whenever the CDN was blocked or offline, and every
+   visitor was announced to a third party before typing a word. */
+@font-face {
+  font-family: "Special Elite";
+  src: url("./fonts/SpecialElite-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Cutive Mono";
+  src: url("./fonts/CutiveMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Courier Prime";
+  src: url("./fonts/CourierPrime-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Space Mono";
+  src: url("./fonts/SpaceMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Cousine";
+  src: url("./fonts/Cousine-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 @theme {
   --font-special-elite: "Special Elite", monospace;
   --font-cutive-mono: "Cutive Mono", monospace;
@@ -73,197 +114,256 @@
   }
 
 
-  .typewriter-machine-frame {
-    position: relative;
-    height: 100%;
-    border-radius: 24px 24px 18px 18px;
-    background:
-      linear-gradient(180deg, rgba(58, 62, 70, 0.42) 0%, rgba(34, 37, 44, 0.36) 54%, rgba(28, 31, 37, 0.44) 100%);
+  /* -----------------------------------------------------------------------
+   * The machine
+   *
+   * Rebuilt so it frames the sheet rather than tinting it. The old chassis
+   * stacked translucent dark panels across the whole page and cost the paper
+   * about a third of its brightness. Everything here is opaque and sits either
+   * outside the sheet's width (rails, knobs, apron) or in front of it at the
+   * printing line only (platen, bail, type guide) — which is where those parts
+   * physically are on a real machine.
+   *
+   * Colours come from per-model CSS variables set in MachineChassis.
+   * ----------------------------------------------------------------------- */
+
+  .machine-carriage {
+    transition: transform 150ms ease-out;
+  }
+
+  .machine-rail {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background: linear-gradient(90deg, var(--body-shade), var(--body) 42%, var(--body-highlight));
     box-shadow:
-      0 16px 30px -30px rgba(0, 0, 0, 0.88),
-      0 1px 0 rgba(255, 255, 255, 0.15) inset,
-      0 -1px 0 rgba(12, 13, 17, 0.28) inset;
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      0 0 22px -6px rgba(0, 0, 0, 0.55);
+  }
+
+  .machine-rail-left {
+    border-radius: var(--radius) 0 0 var(--radius);
+    background: linear-gradient(90deg, var(--body-shade), var(--body) 58%, var(--body-highlight));
+  }
+
+  .machine-rail-right {
+    border-radius: 0 var(--radius) var(--radius) 0;
+    background: linear-gradient(270deg, var(--body-shade), var(--body) 58%, var(--body-highlight));
+  }
+
+  /* Surface treatments. Wrinkle paint, japanned gloss and satin enamel read
+     very differently in person; these approximate them with texture overlays. */
+  .machine-finish-crinkle {
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'%3E%3Cfilter id='c'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.55' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23c)' opacity='0.16'/%3E%3C/svg%3E");
+    background-blend-mode: soft-light;
+  }
+
+  .machine-finish-gloss::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(115deg, rgba(255, 255, 255, 0.22) 0%, transparent 26%, transparent 72%, rgba(255, 255, 255, 0.1) 100%);
+    pointer-events: none;
+  }
+
+  .machine-finish-satin {
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 30%);
+  }
+
+  /* Platen: a rubber cylinder. The sheet wraps over it and is struck at its
+     lower edge, so it is the one part that belongs in front of the paper. */
+  .machine-platen {
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    border-radius: 9999px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--platen) 72%, white) 0%, var(--platen) 34%, color-mix(in srgb, var(--platen) 70%, black) 100%);
+    box-shadow:
+      inset 0 2px 3px rgba(255, 255, 255, 0.14),
+      inset 0 -3px 5px rgba(0, 0, 0, 0.45),
+      0 6px 14px -8px rgba(0, 0, 0, 0.7);
     overflow: hidden;
   }
 
-
-  .machine-model-remington {
-    background: linear-gradient(180deg, rgba(78, 61, 47, 0.48) 0%, rgba(44, 40, 42, 0.38) 54%, rgba(34, 35, 41, 0.46) 100%);
-  }
-
-  .machine-model-underwood {
-    background: linear-gradient(180deg, rgba(84, 70, 52, 0.46) 0%, rgba(43, 46, 48, 0.37) 54%, rgba(35, 39, 43, 0.45) 100%);
-  }
-
-  .machine-model-royal {
-    background: linear-gradient(180deg, rgba(84, 56, 56, 0.48) 0%, rgba(46, 40, 46, 0.37) 54%, rgba(36, 35, 42, 0.45) 100%);
-  }
-
-  .machine-model-olivetti {
-    background: linear-gradient(180deg, rgba(96, 84, 58, 0.46) 0%, rgba(45, 50, 52, 0.36) 54%, rgba(36, 42, 45, 0.44) 100%);
-  }
-
-  .machine-model-ibm {
-    background: linear-gradient(180deg, rgba(72, 82, 98, 0.46) 0%, rgba(43, 49, 58, 0.36) 54%, rgba(33, 41, 50, 0.44) 100%);
-  }
-
-  .machine-color-wash {
+  .machine-platen-sheen {
     position: absolute;
-    inset: 0;
-    background:
-      radial-gradient(120% 85% at 0% 0%, rgba(var(--machine-warm, 132, 84, 52), 0.24), transparent 52%),
-      radial-gradient(120% 90% at 100% 8%, rgba(var(--machine-cool, 62, 96, 142), 0.2), transparent 54%),
-      radial-gradient(90% 70% at 50% 95%, rgba(var(--machine-base, 116, 82, 44), 0.17), transparent 62%);
-    opacity: 0.82;
-    mix-blend-mode: screen;
-    pointer-events: none;
-  }
-
-  .machine-frame-top {
-    position: absolute;
-    top: 0;
-    left: 10%;
-    right: 10%;
-    height: 76px;
-    border-radius: 0 0 20px 20px;
-    background: linear-gradient(to bottom, rgba(26, 29, 36, 0.56), rgba(26, 29, 36, 0.14));
-    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.14) inset;
-  }
-
-  .machine-frame-sides {
-    position: absolute;
-    inset: 70px 0 110px;
-    border-left: 30px solid rgba(20, 23, 30, 0.24);
-    border-right: 30px solid rgba(20, 23, 30, 0.24);
-    box-shadow:
-      1px 0 0 rgba(255, 255, 255, 0.09) inset,
-      -1px 0 0 rgba(255, 255, 255, 0.09) inset;
-  }
-
-  .machine-paper-window {
-    position: absolute;
-    inset: 72px 34px 112px;
-    border-radius: 8px;
-    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.01) 38%, rgba(255, 255, 255, 0.08));
-    box-shadow:
-      0 0 0 1px rgba(255, 255, 255, 0.12) inset,
-      0 0 0 2px rgba(11, 14, 18, 0.2) inset;
-  }
-
-  .machine-platen-assembly {
-    position: absolute;
-    left: 48px;
-    right: 48px;
-    top: 102px;
-    height: 20px;
-    pointer-events: none;
-  }
-
-  .machine-platen-roller {
-    position: absolute;
-    inset: 0;
+    inset-inline: 3%;
+    top: 14%;
+    height: 22%;
     border-radius: 9999px;
-    background: linear-gradient(to bottom, rgba(74, 81, 92, 0.58), rgba(34, 40, 50, 0.62));
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.16) inset,
-      0 -1px 0 rgba(0, 0, 0, 0.25) inset,
-      0 4px 8px -8px rgba(0, 0, 0, 0.55);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.2), transparent);
+    filter: blur(1px);
   }
 
-  .machine-ribbon-band {
+  /* Fine axial scoring, the way worn platen rubber catches light. */
+  .machine-platen-grain {
     position: absolute;
-    left: 10px;
-    right: 10px;
-    top: 11px;
+    inset: 0;
+    opacity: 0.3;
+    background-image: repeating-linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.18) 0 1px,
+      transparent 1px 4px
+    );
+  }
+
+  .machine-platen-shadow {
+    position: absolute;
+    inset-inline: 2%;
+    height: 16px;
+    background: linear-gradient(180deg, rgba(24, 18, 10, 0.34), transparent);
+    pointer-events: none;
+  }
+
+  /* Paper bail: the sprung bar with rubber rollers that holds the sheet flat. */
+  .machine-bail {
+    position: absolute;
+    inset-inline: 4%;
     height: 3px;
     border-radius: 9999px;
-    background: linear-gradient(to right, rgba(74, 28, 28, 0.16), rgba(130, 52, 52, 0.34), rgba(74, 28, 28, 0.16));
-    box-shadow: 0 0 8px rgba(42, 10, 10, 0.18);
+    background: linear-gradient(180deg, var(--trim), color-mix(in srgb, var(--trim) 55%, black));
+    box-shadow: 0 2px 4px -2px rgba(0, 0, 0, 0.65);
   }
 
-  .machine-strike-shadow {
+  .machine-bail-roller {
     position: absolute;
-    left: 5%;
-    right: 5%;
-    top: 13px;
-    height: 12px;
-    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.14), transparent 85%);
-    opacity: 0.36;
+    top: -3px;
+    width: 16px;
+    height: 9px;
+    border-radius: 9999px;
+    background: linear-gradient(180deg, #4a4540, #221f1b);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
   }
 
-  .machine-frame-bottom {
+  /* Platen knobs, one at each end of the roller. */
+  .machine-knob {
     position: absolute;
-    left: 9%;
-    right: 9%;
+    border-radius: 9999px;
+    background: radial-gradient(circle at 34% 30%, var(--body-highlight), var(--knob) 62%, color-mix(in srgb, var(--knob) 60%, black));
+    box-shadow:
+      inset 0 2px 3px rgba(255, 255, 255, 0.16),
+      0 5px 12px -6px rgba(0, 0, 0, 0.75);
+    display: grid;
+    place-items: center;
+  }
+
+  .machine-knob-face {
+    width: 46%;
+    height: 46%;
+    border-radius: 9999px;
+    background: radial-gradient(circle at 40% 34%, color-mix(in srgb, var(--trim) 80%, white), var(--trim) 70%, color-mix(in srgb, var(--trim) 50%, black));
+    box-shadow: inset 0 -1px 2px rgba(0, 0, 0, 0.4);
+  }
+
+  /* Ribbon spools, turning a notch per strike. */
+  .machine-spool {
+    position: absolute;
+    width: 30px;
+    height: 30px;
+    border-radius: 9999px;
+    background: radial-gradient(circle at 42% 36%, color-mix(in srgb, var(--ribbon-ink) 60%, #3a3a33), var(--ribbon-ink) 58%, #171512);
+    box-shadow: inset 0 0 0 2px var(--trim), 0 4px 10px -6px rgba(0, 0, 0, 0.8);
+    display: grid;
+    place-items: center;
+    transition: transform 90ms linear;
+  }
+
+  .machine-spool-hub {
+    width: 30%;
+    height: 30%;
+    border-radius: 9999px;
+    background: var(--trim);
+    box-shadow: inset 0 -1px 1px rgba(0, 0, 0, 0.45);
+  }
+
+  /* Type guide: the forked bracket the typebar strikes through. It rides with
+     the printing point, which is what makes the strike position legible. */
+  .machine-type-guide {
+    position: absolute;
+    width: 20px;
+    margin-left: -10px;
+    transition: left 85ms cubic-bezier(0.2, 0.8, 0.3, 1);
+  }
+
+  .machine-type-guide-jaw {
+    position: absolute;
+    top: 0;
+    width: 4px;
+    height: 100%;
+    background: linear-gradient(180deg, var(--trim), color-mix(in srgb, var(--trim) 45%, black));
+    box-shadow: 0 1px 3px -1px rgba(0, 0, 0, 0.6);
+  }
+
+  .machine-type-guide-jaw-left {
+    left: 0;
+    border-radius: 2px 0 0 2px;
+    clip-path: polygon(0 0, 100% 22%, 100% 100%, 0 100%);
+  }
+
+  .machine-type-guide-jaw-right {
+    right: 0;
+    border-radius: 0 2px 2px 0;
+    clip-path: polygon(0 22%, 100% 0, 100% 100%, 0 100%);
+  }
+
+  /* Front apron, docked to the bottom of the view. Anchored here rather than
+     below the page so it never covers the sheet the writer is filling. */
+  .machine-apron {
+    position: absolute;
+    inset-inline: 0;
     bottom: 0;
-    height: 84px;
-    border-radius: 22px 22px 0 0;
-    background: linear-gradient(to top, rgba(28, 31, 38, 0.5), rgba(48, 52, 62, 0.16));
-    box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.12) inset;
+    height: 54px;
+    background: linear-gradient(180deg, var(--body-shade), var(--body) 55%, color-mix(in srgb, var(--body) 70%, black));
+    border-top: 1px solid var(--body-highlight);
+    box-shadow: 0 -12px 26px -18px rgba(0, 0, 0, 0.9);
+    display: grid;
+    place-items: center;
+  }
+
+  .machine-apron-compact {
+    height: 34px;
+  }
+
+  .machine-apron-lip {
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    height: 6px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), transparent);
+  }
+
+  .machine-nameplate {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    color: var(--plate-ink);
+  }
+
+  .machine-nameplate-mark {
+    font-family: "Cutive Mono", ui-monospace, monospace;
+    font-size: 15px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.45);
+  }
+
+  .machine-nameplate-era {
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    opacity: 0.62;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .machine-spool,
+    .machine-type-guide {
+      transition: none;
+    }
   }
 
 
-  .machine-shell-compact {
-    border-radius: 18px 18px 14px 14px;
-  }
-
-  .machine-shell-compact .machine-frame-top {
-    height: 58px;
-    left: 12%;
-    right: 12%;
-  }
-
-  .machine-shell-compact .machine-frame-sides {
-    inset: 54px 0 88px;
-    border-left-width: 18px;
-    border-right-width: 18px;
-  }
-
-  .machine-shell-compact .machine-paper-window {
-    inset: 56px 24px 86px;
-  }
-
-  .machine-shell-compact .machine-frame-bottom {
-    height: 64px;
-    left: 11%;
-    right: 11%;
-  }
-
-  .machine-shell-minimal {
-    border-radius: 12px;
-    background: linear-gradient(180deg, rgba(34, 38, 46, 0.26), rgba(26, 30, 38, 0.18));
-    box-shadow: 0 8px 18px -18px rgba(0, 0, 0, 0.85), 0 1px 0 rgba(255, 255, 255, 0.12) inset;
-  }
-
-  .machine-shell-minimal .machine-color-wash,
-  .machine-shell-minimal .machine-frame-top,
-  .machine-shell-minimal .machine-frame-sides,
-  .machine-shell-minimal .machine-paper-window,
-  .machine-shell-minimal .machine-frame-bottom {
-    display: none;
-  }
-
-  .machine-shell-minimal .machine-platen-assembly {
-    top: 46px;
-    left: 36px;
-    right: 36px;
-    height: 14px;
-  }
-
-  .machine-shell-minimal .machine-platen-roller {
-    background: linear-gradient(to bottom, rgba(90, 96, 108, 0.45), rgba(30, 35, 44, 0.52));
-  }
-
-  .machine-shell-minimal .machine-ribbon-band {
-    top: 8px;
-    height: 2px;
-    opacity: 0.7;
-  }
-
-  .machine-shell-minimal .machine-strike-shadow {
-    top: 10px;
-    opacity: 0.2;
-  }
   .typewriter-caret {
     width: 0.58em;
     height: 1.18em;
@@ -309,9 +409,79 @@
     transition-duration: 0ms;
   }
 
+  /* Margin stop reached: the keys are locked until the carriage is returned.
+     Two signals, because one is easy to miss mid-sentence — the margin cue
+     goes solid red, and a flag names the reason and the way out. */
+  .carriage-margin-cue-locked {
+    background: linear-gradient(to bottom, rgba(163, 43, 34, 0.95), rgba(163, 43, 34, 0.55));
+    box-shadow: 0 0 8px rgba(163, 43, 34, 0.5);
+    animation: carriage-lock-pulse 900ms ease-out infinite;
+  }
+
+  .carriage-lock-flag {
+    position: absolute;
+    top: -2px;
+    white-space: nowrap;
+    font-family: ui-monospace, "Courier Prime", monospace;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #7d2019;
+    background: rgba(250, 244, 236, 0.94);
+    border: 1px solid rgba(163, 43, 34, 0.4);
+    border-radius: 2px;
+    padding: 2px 6px;
+    box-shadow: 0 2px 6px -3px rgba(60, 20, 12, 0.5);
+    animation: carriage-lock-in 140ms ease-out;
+    pointer-events: none;
+  }
+
+  @keyframes carriage-lock-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+  }
+
+  @keyframes carriage-lock-in {
+    from { opacity: 0; transform: translateX(-3px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .carriage-margin-cue-locked { animation: none; }
+    .carriage-lock-flag { animation: none; }
+  }
+
   @keyframes typewriter-caret-blink {
     0%, 45% { opacity: 0.38; }
     55%, 100% { opacity: 0.08; }
+  }
+
+  /* A second glyph struck into the same cell: the X of a cancelled word, or
+     the full stop under an apostrophe that older machines used for an
+     exclamation mark. Sits exactly on the base glyph rather than beside it. */
+  .char-overstrike {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+    color: currentColor;
+    z-index: 12;
+  }
+
+  /* Correction fluid: an opaque patch of not-quite-paper, brushed on slightly
+     off-register the way it always ends up. */
+  .correction-patch {
+    position: absolute;
+    inset: -1px -0.5px 0px -0.5px;
+    z-index: 11;
+    pointer-events: none;
+    border-radius: 1px;
+    background:
+      linear-gradient(178deg, rgba(250, 247, 240, 0.96), rgba(243, 239, 228, 0.98));
+    box-shadow:
+      0 0 1px rgba(150, 138, 116, 0.45),
+      inset 0 1px 0 rgba(255, 255, 255, 0.8);
   }
 
   /* -----------------------------------------------------------------------
@@ -466,5 +636,333 @@
 
   .margin-guides {
     border-color: rgba(110, 95, 72, 0.18);
+  }
+}
+
+@layer utilities {
+  /* -----------------------------------------------------------------------
+   * Machine controls
+   *
+   * Replaces the row of native <select> elements, which rendered with the
+   * operating system's own chrome and read as a settings form bolted to the
+   * top of a typewriter.
+   * ----------------------------------------------------------------------- */
+
+  .machine-control {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      "icon label chevron"
+      "icon value chevron";
+    align-items: center;
+    column-gap: 8px;
+    width: 100%;
+    padding: 4px 9px 5px;
+    border: 1px solid #3f3f46;
+    border-radius: 3px;
+    background: linear-gradient(180deg, #2c2c31, #232327);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 1px 2px rgba(0, 0, 0, 0.4);
+    color: #e4e4e7;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 120ms ease, background 120ms ease;
+  }
+
+  .machine-control:hover { border-color: #52525b; }
+  .machine-control:focus-visible {
+    outline: none;
+    border-color: #a1a1aa;
+    box-shadow: 0 0 0 2px rgba(161, 161, 170, 0.35);
+  }
+
+  .machine-control-icon {
+    grid-area: icon;
+    display: inline-flex;
+    color: #71717a;
+  }
+
+  .machine-control-label {
+    grid-area: label;
+    font-family: ui-monospace, "Courier Prime", monospace;
+    font-size: 8px;
+    line-height: 1.3;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #71717a;
+    white-space: nowrap;
+  }
+
+  .machine-control-value {
+    grid-area: value;
+    min-width: 0;
+    font-size: 13px;
+    line-height: 1.25;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .machine-control-chevron {
+    grid-area: chevron;
+    color: #71717a;
+    transition: transform 120ms ease;
+  }
+
+  .machine-control-chevron-open { transform: rotate(180deg); }
+
+  .machine-menu {
+    position: absolute;
+    z-index: 50;
+    top: calc(100% + 4px);
+    left: 0;
+    min-width: 100%;
+    max-height: 17rem;
+    overflow-y: auto;
+    margin: 0;
+    padding: 4px;
+    list-style: none;
+    border: 1px solid #3f3f46;
+    border-radius: 3px;
+    background: #1c1c1f;
+    box-shadow: 0 14px 34px -12px rgba(0, 0, 0, 0.85);
+  }
+
+  .machine-menu-item {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 6px 9px;
+    border-radius: 2px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .machine-menu-item-active { background: #2f2f35; }
+
+  .machine-menu-item-selected .machine-menu-label {
+    color: #fafafa;
+    font-weight: 500;
+  }
+
+  .machine-menu-item-selected::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    left: 2px;
+    width: 2px;
+    height: 1.15em;
+    background: #a1a1aa;
+    border-radius: 1px;
+  }
+
+  .machine-menu-label {
+    font-size: 13px;
+    color: #d4d4d8;
+  }
+
+  .machine-menu-detail {
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #71717a;
+  }
+
+  /* -----------------------------------------------------------------------
+   * Margin scale
+   * ----------------------------------------------------------------------- */
+
+  .margin-ruler {
+    pointer-events: auto;
+    user-select: none;
+  }
+
+  .margin-ruler-track {
+    position: relative;
+    height: 16px;
+    border-radius: 2px;
+    background: linear-gradient(180deg, #cdc6b6, #b3ab99);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.5),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.2),
+      0 1px 3px rgba(0, 0, 0, 0.35);
+  }
+
+  /* The stretch outside the stops, where the carriage will not print. */
+  .margin-ruler-dead {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background: rgba(60, 48, 32, 0.22);
+  }
+
+  .margin-ruler-tick {
+    position: absolute;
+    bottom: 0;
+    width: 1px;
+    height: 4px;
+    background: rgba(52, 42, 28, 0.5);
+  }
+
+  .margin-ruler-tick-inch { height: 8px; }
+
+  .margin-ruler-stop {
+    position: absolute;
+    top: -4px;
+    width: 14px;
+    height: 24px;
+    margin-left: -7px;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: ew-resize;
+    touch-action: none;
+  }
+
+  .margin-ruler-stop-tab {
+    position: absolute;
+    inset: 0;
+    border-radius: 2px;
+    background: linear-gradient(180deg, #6d7079, #3d4048);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.35),
+      0 2px 4px rgba(0, 0, 0, 0.5);
+    clip-path: polygon(50% 0, 100% 26%, 100% 100%, 0 100%, 0 26%);
+  }
+
+  .margin-ruler-stop:hover .margin-ruler-stop-tab,
+  .margin-ruler-stop-dragging .margin-ruler-stop-tab {
+    background: linear-gradient(180deg, #868a94, #4c505a);
+  }
+
+  .margin-ruler-stop:focus-visible {
+    outline: none;
+  }
+
+  .margin-ruler-stop:focus-visible .margin-ruler-stop-tab {
+    box-shadow: 0 0 0 2px rgba(212, 212, 216, 0.85), 0 2px 4px rgba(0, 0, 0, 0.5);
+  }
+
+  .margin-ruler-readout {
+    display: flex;
+    justify-content: space-between;
+    margin: 3px 0 0;
+    font-family: ui-monospace, "Courier Prime", monospace;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #8a8578;
+  }
+
+  .margin-ruler-readout-columns { color: #a8a294; }
+}
+
+@layer utilities {
+  /* -----------------------------------------------------------------------
+   * Page thumbnails
+   *
+   * The rail used to show a white rectangle with a number in it, which told
+   * the writer nothing about the page it stood for. These render the page's
+   * real lines, scaled to the rail's width.
+   * ----------------------------------------------------------------------- */
+
+  .page-thumb {
+    --thumb-scale: 0.25;
+    position: relative;
+    display: block;
+    overflow: hidden;
+    background-color: #f3efe5;
+    background-image: radial-gradient(120% 100% at 50% 0%, rgba(255, 255, 255, 0.45), rgba(232, 226, 212, 0.25));
+  }
+
+  .page-thumb-sheet {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: block;
+    transform-origin: top left;
+    white-space: pre;
+    color: #2b2a26;
+    /* Type this small renders as mush with hinting on; smoothing keeps the
+       block of text readable as texture rather than noise. */
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeSpeed;
+  }
+
+  .page-thumb-line {
+    display: block;
+    overflow: hidden;
+  }
+
+  .page-thumb-number {
+    position: absolute;
+    right: 4px;
+    bottom: 3px;
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    line-height: 1;
+    padding: 2px 4px;
+    border-radius: 2px;
+    color: #6b6355;
+    background: rgba(255, 253, 248, 0.85);
+    box-shadow: 0 1px 2px rgba(70, 60, 44, 0.18);
+  }
+
+  /* -----------------------------------------------------------------------
+   * Session counter on the front rail
+   * ----------------------------------------------------------------------- */
+
+  .machine-counter {
+    position: absolute;
+    right: 18px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    font-family: ui-monospace, "Courier Prime", monospace;
+    color: var(--plate-ink);
+    opacity: 0.72;
+  }
+
+  .machine-counter-cell {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+  }
+
+  .machine-counter-value {
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+  }
+
+  .machine-counter-unit {
+    font-size: 8px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    opacity: 0.66;
+  }
+
+  @media (max-width: 900px) {
+    .machine-counter { display: none; }
+  }
+}
+
+@layer utilities {
+  /* Available to assistive technology, invisible on screen. Used for the
+     document's instructions and for announcing the margin stop. */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
   }
 }

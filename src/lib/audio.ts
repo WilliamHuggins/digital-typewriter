@@ -716,6 +716,7 @@ export class TypewriterAudio {
     this.enabled = enabled;
 
     if (!enabled) {
+      this.stopAmbient();
       this.loading = false;
       this.initPromise = null;
       this.setStatus('off');
@@ -814,6 +815,14 @@ export class TypewriterAudio {
 
   setVolume(v: number) {
     this.volume = v;
+
+    if (this.ambient && this.ctx) {
+      this.ambient.gain.gain.setTargetAtTime(
+        v * TypewriterAudio.AMBIENT_LEVEL,
+        this.ctx.currentTime,
+        0.05,
+      );
+    }
   }
 
   private clamp(value: number, min: number, max: number) {
@@ -1008,6 +1017,107 @@ export class TypewriterAudio {
         voiceCap: profile.overlapCaps.return
       });
     }, feedDelay * 1000);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Ambience
+  //
+  // Every machine was silent between keystrokes, which is right for a manual
+  // sitting on a desk and wrong for an electric one: an IBM Executive runs its
+  // motor the whole time it is switched on, and that hum is most of what the
+  // machine sounds like. Synthesized rather than sampled, to match the rest of
+  // the engine, and kept well under the keystrokes so it reads as room rather
+  // than as noise.
+  // ---------------------------------------------------------------------------
+
+  private ambient: { nodes: AudioNode[]; gain: GainNode; model: string } | null = null;
+
+  /** Peak ambient gain, as a fraction of the master volume. */
+  private static readonly AMBIENT_LEVEL = 0.05;
+
+  private buildMotorHum(ctx: AudioContext, gain: GainNode): AudioNode[] {
+    const nodes: AudioNode[] = [];
+
+    // A mains-driven motor sits on the line frequency and its harmonics.
+    for (const [freq, level] of [[60, 1], [120, 0.5], [180, 0.16]] as const) {
+      const osc = ctx.createOscillator();
+      osc.type = 'sawtooth';
+      osc.frequency.value = freq;
+
+      const partial = ctx.createGain();
+      partial.gain.value = level;
+
+      // Roll the buzz off so it reads as a hum in a room, not a synth tone.
+      const lowpass = ctx.createBiquadFilter();
+      lowpass.type = 'lowpass';
+      lowpass.frequency.value = 340;
+      lowpass.Q.value = 0.5;
+
+      osc.connect(partial).connect(lowpass).connect(gain);
+      osc.start();
+      nodes.push(osc, partial, lowpass);
+    }
+
+    // A slow wobble keeps the hum from sounding like a held sine.
+    const wobble = ctx.createOscillator();
+    wobble.frequency.value = 0.24;
+    const wobbleDepth = ctx.createGain();
+    wobbleDepth.gain.value = 0.12;
+    wobble.connect(wobbleDepth).connect(gain.gain);
+    wobble.start();
+    nodes.push(wobble, wobbleDepth);
+
+    return nodes;
+  }
+
+  /**
+   * Start or swap the ambient bed for a machine.
+   *
+   * Only the electric IBM has one; the manuals stay silent, which is accurate
+   * and also means the app makes no sound at all until a key is pressed.
+   */
+  setAmbientModel(model: string) {
+    if (!this.enabled || !this.ctx || this.ctx.state !== 'running') {
+      this.stopAmbient();
+      return;
+    }
+
+    if (this.ambient?.model === model) return;
+    this.stopAmbient();
+
+    if (model !== 'ibm') return;
+
+    const gain = this.ctx.createGain();
+    gain.gain.value = 0;
+    gain.connect(this.ctx.destination);
+
+    const nodes = this.buildMotorHum(this.ctx, gain);
+
+    // Spin up rather than snap on, the way a motor does.
+    gain.gain.linearRampToValueAtTime(
+      this.volume * TypewriterAudio.AMBIENT_LEVEL,
+      this.ctx.currentTime + 0.6,
+    );
+
+    this.ambient = { nodes, gain, model };
+  }
+
+  stopAmbient() {
+    const ambient = this.ambient;
+    if (!ambient || !this.ctx) return;
+    this.ambient = null;
+
+    const stopAt = this.ctx.currentTime + 0.35;
+    ambient.gain.gain.cancelScheduledValues(this.ctx.currentTime);
+    ambient.gain.gain.setValueAtTime(ambient.gain.gain.value, this.ctx.currentTime);
+    ambient.gain.gain.linearRampToValueAtTime(0, stopAt);
+
+    for (const node of ambient.nodes) {
+      if ('stop' in node && typeof (node as OscillatorNode).stop === 'function') {
+        (node as OscillatorNode).stop(stopAt);
+      }
+    }
+    window.setTimeout(() => ambient.gain.disconnect(), 500);
   }
 
   getSoundPersonality(model: string) {

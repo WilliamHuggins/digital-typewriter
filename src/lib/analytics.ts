@@ -40,10 +40,10 @@ export const initializeAnalytics = () => {
   script.dataset.gaId = GA_MEASUREMENT_ID;
   document.head.appendChild(script);
 
-  window.dataLayer = window.dataLayer || [];
+  const dataLayer = (window.dataLayer = window.dataLayer ?? []);
 
   window.gtag = (...args: unknown[]) => {
-    window.dataLayer.push(args);
+    dataLayer.push(args);
   };
 
   window.gtag('js', new Date());
@@ -60,7 +60,7 @@ export const initializeAnalytics = () => {
 
 declare global {
   interface Window {
-    dataLayer: unknown[][];
+    dataLayer?: unknown[];
     gtag: (...args: unknown[]) => void;
   }
 }
